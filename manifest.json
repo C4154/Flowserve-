@@ -2,7 +2,7 @@
   "name": "Časovač & Odpočty",
   "short_name": "Časovač",
   "description": "Správa časových úseků s odpočty a notifikacemi",
-  "start_url": "./index.html",
+  "start_url": "https://c4154.github.io/Flowserve-/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
