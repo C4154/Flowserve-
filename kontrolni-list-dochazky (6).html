@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Kontrolní list docházky</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #eef0f2;
+    margin: 0;
+    padding: 20px;
+    color: #222;
+  }
+  .sheet {
+    max-width: 1300px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 20px;
+    border: 1px solid #333;
+  }
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    margin: 0 0 15px 0;
+  }
+  .top-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .top-info .fields {
+    display: flex;
+    gap: 25px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .top-info label {
+    font-weight: bold;
+    margin-right: 4px;
+  }
+  .top-info input {
+    border: none;
+    border-bottom: 1px solid #333;
+    font-size: 15px;
+    padding: 2px 4px;
+  }
+  table.main {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+  }
+  table.main th, table.main td {
+    border: 1px solid #333;
+    text-align: center;
+    padding: 2px;
+    font-size: 13px;
+  }
+  table.main th {
+    background: #dfe3e6;
+    font-weight: bold;
+  }
+  col.datum { width: 45px; }
+  col.time  { width: 7%; }
+  col.abs   { width: 11%; }
+  col.pozn  { width: auto; }
+
+  th.col-dovolena, td.col-dovolena { background: #bcd9f0; }
+  th.col-nv,       td.col-nv       { background: #a6d96a; }
+  th.col-prescas,  td.col-prescas  { background: #e08a75; }
+  th.col-lekar,    td.col-lekar    { background: #cc4c4c; color:#fff; }
+
+  .abs-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .abs-cell label.chk {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .abs-cell input[type="checkbox"] { width: auto; margin: 0; }
+  .abs-cell input[type="number"] {
+    width: 85%;
+    text-align: center;
+    font-size: 12px;
+  }
+  td.prescas-cell { font-weight: bold; }
+
+  table.main input:disabled {
+    background: transparent;
+    color: #000;
+    opacity: 1;
+    -webkit-text-fill-color: #000;
+  }
+
+  table.main input {
+    width: 100%;
+    border: none;
+    text-align: center;
+    font-size: 13px;
+    background: transparent;
+  }
+  table.main input:focus { background: #fff9c4; outline: none; }
+
+  td.hodsmena { font-weight: bold; background:#f5f5f5; }
+
+  /* zvýraznění víkendů a státních svátků - jen na sloupcích bez vlastní barvy */
+  tr.weekend td:nth-child(1),
+  tr.weekend td:nth-child(2),
+  tr.weekend td:nth-child(3),
+  tr.weekend td:nth-child(4),
+  tr.weekend td:nth-child(9) { background: #ffe3a3; }
+
+  tr.holiday td:nth-child(1),
+  tr.holiday td:nth-child(2),
+  tr.holiday td:nth-child(3),
+  tr.holiday td:nth-child(4),
+  tr.holiday td:nth-child(9) { background: #f5a3a3; }
+
+  .legend {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 13px;
+    margin: 8px 0 4px 0;
+  }
+  .legend span.swatch {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 1px solid #666;
+    vertical-align: middle;
+    margin-right: 5px;
+  }
+  .swatch.weekend { background: #ffe3a3; }
+  .swatch.holiday { background: #f5a3a3; }
+
+  tr.uzaverka-row td {
+    font-weight: bold;
+    background: #f0f0f0;
+  }
+  tr.uzaverka-label td {
+    font-weight: bold;
+    background: #e6e6e6;
+  }
+
+  .footer-note {
+    margin-top: 15px;
+    color: #c0392b;
+    font-weight: bold;
+    font-size: 16px;
+  }
+
+  .controls {
+    text-align: center;
+    margin: 20px 0;
+  }
+  .controls button {
+    font-size: 15px;
+    padding: 8px 18px;
+    margin: 0 6px;
+    cursor: pointer;
+    border: 1px solid #555;
+    background: #fff;
+    border-radius: 4px;
+  }
+  .controls button:hover { background: #eee; }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .sheet { border: none; padding: 0; }
+    .no-print { display: none !important; }
+    .uzaverka-row, .uzaverka-label, .uzaverka-title { display: none !important; }
+    table.main input { border: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <h1>Kontrolní list docházky</h1>
+
+  <div class="top-info">
+    <div class="fields">
+      <div><label>Jméno pracovníka:</label><input type="text" id="jmeno" size="25"></div>
+      <div><label>Měsíc:</label>
+        <select id="mesic">
+          <option value="1">Leden</option>
+          <option value="2">Únor</option>
+          <option value="3">Březen</option>
+          <option value="4">Duben</option>
+          <option value="5">Květen</option>
+          <option value="6">Červen</option>
+          <option value="7">Červenec</option>
+          <option value="8">Srpen</option>
+          <option value="9" selected>Září</option>
+          <option value="10">Říjen</option>
+          <option value="11">Listopad</option>
+          <option value="12">Prosinec</option>
+        </select>
+      </div>
+      <div><label>Rok:</label><input type="number" id="rok" size="6" value="2026"></div>
+    </div>
+  </div>
+
+  <div class="legend no-print">
+    <div><span class="swatch weekend"></span>Víkend</div>
+    <div><span class="swatch holiday"></span>Státní svátek (odpracované hodiny jdou do přesčasu)</div>
+    <div>Směna = 7,5 h. Přesčas se počítá automaticky (nad 7,5 h/den, celý svátek).</div>
+  </div>
+
+  <table class="main" id="dochazkaTable">
+    <colgroup>
+      <col class="datum">
+      <col class="time"><col class="time"><col class="time">
+      <col class="abs"><col class="abs"><col class="time"><col class="abs">
+      <col class="pozn">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Datum</th>
+        <th>Příchod</th>
+        <th>Odchod</th>
+        <th>Hod/<br>Směna</th>
+        <th class="col-dovolena">Dovolená</th>
+        <th class="col-nv">NV</th>
+        <th class="col-prescas">Přesčas</th>
+        <th class="col-lekar">Lékař/<br>nemoc</th>
+        <th>Poznámka</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+    <tfoot>
+      <tr class="uzaverka-label">
+        <td colspan="3">Uzávěrka</td>
+        <td>Hod.<br>Celkem</td>
+        <td class="col-dovolena">Hod.<br>Celkem</td>
+        <td class="col-nv">Hod.<br>Celkem</td>
+        <td class="col-prescas">Hod.<br>Celkem</td>
+        <td class="col-lekar">Hod.<br>Celkem</td>
+        <td></td>
+      </tr>
+      <tr class="uzaverka-row">
+        <td colspan="3"></td>
+        <td id="sumSmena">0.0</td>
+        <td class="col-dovolena" id="sumDovolena">0.0</td>
+        <td class="col-nv" id="sumNv">0.0</td>
+        <td class="col-prescas" id="sumPrescas">0.0</td>
+        <td class="col-lekar" id="sumLekar">0.0</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="footer-note">Nárok na extra bonus na stravování :</div>
+</div>
+
+<div class="controls no-print">
+  <button onclick="window.print()">Tisk</button>
+  <button onclick="resetTable()">Vymazat vše</button>
+  <span id="saveStatus" style="font-size:12px;color:#666;margin-left:10px;"></span>
+</div>
+
+<script>
+const DAYS = 31;
+const tbody = document.getElementById('tbody');
+
+function timeToHours(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h + m / 60;
+}
+
+function buildRow(day) {
+  const tr = document.createElement('tr');
+  tr.dataset.day = day;
+  tr.dataset.holiday = '0';
+  tr.innerHTML = `
+    <td class="datum-cell">${day}.</td>
+    <td><input type="time" class="prichod"></td>
+    <td><input type="time" class="odchod"></td>
+    <td class="hodsmena">0.0</td>
+    <td class="col-dovolena">
+      <div class="abs-cell">
+        <label class="chk"><input type="checkbox" class="dov-cely">celý den</label>
+        <input type="number" step="0.1" min="0" max="7.5" class="dov-hod" placeholder="hod.">
+      </div>
+    </td>
+    <td class="col-nv">
+      <div class="abs-cell">
+        <label class="chk"><input type="checkbox" class="nv-cely">celý den</label>
+        <input type="number" step="0.1" min="0" max="7.5" class="nv-hod" placeholder="hod.">
+      </div>
+    </td>
+    <td class="col-prescas prescas-cell">0.0</td>
+    <td class="col-lekar">
+      <div class="abs-cell">
+        <label class="chk"><input type="checkbox" class="lek-cely">celý den</label>
+        <input type="number" step="0.1" min="0" max="7.5" class="lek-hod" placeholder="hod.">
+      </div>
+    </td>
+    <td><input type="text" class="poznamka"></td>
+  `;
+  return tr;
+}
+
+for (let d = 1; d <= DAYS; d++) {
+  tbody.appendChild(buildRow(d));
+}
+
+// --- výpočet velikonoční neděle (Gaussův algoritmus) ---
+function getEasterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 3=březen, 4=duben
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+// --- seznam českých státních svátků pro daný rok ---
+function getCzechHolidays(year) {
+  const easter = getEasterSunday(year);
+  const goodFriday = new Date(easter);
+  goodFriday.setDate(easter.getDate() - 2);
+  const easterMonday = new Date(easter);
+  easterMonday.setDate(easter.getDate() + 1);
+
+  const fixed = [
+    [1, 1], [5, 1], [5, 8], [7, 5], [7, 6],
+    [9, 28], [10, 28], [11, 17], [12, 24], [12, 25], [12, 26]
+  ]; // [měsíc, den]
+
+  const holidays = fixed.map(([m, d]) => new Date(year, m - 1, d));
+  holidays.push(goodFriday, easterMonday);
+  return holidays;
+}
+
+function daysInMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+const dayNames = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+
+function rebuildCalendar() {
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+
+  tbody.querySelectorAll('tr').forEach((tr, idx) => {
+    const day = idx + 1;
+    tr.classList.remove('weekend', 'holiday');
+
+    if (day > numDays) {
+      tr.style.display = 'none';
+      tr.dataset.holiday = '0';
+      return;
+    }
+    tr.style.display = '';
+
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isHoliday = holidays.some(h =>
+      h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day
+    );
+
+    if (dow === 0 || dow === 6) tr.classList.add('weekend');
+    if (isHoliday) tr.classList.add('holiday');
+
+    tr.dataset.holiday = isHoliday ? '1' : '0';
+    tr.querySelector('.datum-cell').textContent = day + '. (' + dayNames[dow] + ')';
+  });
+
+  recalc();
+}
+
+const SHIFT_LENGTH = 7.5; // délka standardní směny v hodinách
+
+function applyLockFromState(tr) {
+  const groups = [
+    { ck: tr.querySelector('.dov-cely'), hod: tr.querySelector('.dov-hod') },
+    { ck: tr.querySelector('.nv-cely'),  hod: tr.querySelector('.nv-hod')  },
+    { ck: tr.querySelector('.lek-cely'), hod: tr.querySelector('.lek-hod') }
+  ];
+  const active = groups.find(g => g.ck.checked);
+  const prichod = tr.querySelector('.prichod');
+  const odchod = tr.querySelector('.odchod');
+
+  if (active) {
+    groups.forEach(g => {
+      g.ck.disabled = (g !== active);
+      g.hod.disabled = true;
+    });
+    prichod.disabled = true;
+    odchod.disabled = true;
+  } else {
+    groups.forEach(g => { g.ck.disabled = false; g.hod.disabled = false; });
+    prichod.disabled = false;
+    odchod.disabled = false;
+  }
+}
+
+function handleCelyToggle(e) {
+  const cb = e.target;
+  const isAbsCheckbox = cb.classList.contains('dov-cely') || cb.classList.contains('nv-cely') || cb.classList.contains('lek-cely');
+  if (!isAbsCheckbox) return;
+
+  const tr = cb.closest('tr');
+  const groups = [
+    { ck: tr.querySelector('.dov-cely'), hod: tr.querySelector('.dov-hod') },
+    { ck: tr.querySelector('.nv-cely'),  hod: tr.querySelector('.nv-hod')  },
+    { ck: tr.querySelector('.lek-cely'), hod: tr.querySelector('.lek-hod') }
+  ];
+
+  if (cb.checked) {
+    groups.forEach(g => { if (g.ck !== cb) g.ck.checked = false; });
+  }
+  groups.forEach(g => {
+    g.hod.value = g.ck.checked ? SHIFT_LENGTH.toFixed(1) : '';
+  });
+  if (groups.some(g => g.ck.checked)) {
+    tr.querySelector('.prichod').value = '';
+    tr.querySelector('.odchod').value = '';
+  }
+
+  applyLockFromState(tr);
+  recalc();
+  scheduleSave();
+}
+
+function recalc() {
+  let totalSmena = 0, totalDov = 0, totalNv = 0, totalPre = 0, totalLek = 0;
+
+  tbody.querySelectorAll('tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+
+    const prichod = tr.querySelector('.prichod').value;
+    const odchod = tr.querySelector('.odchod').value;
+    const smenaCell = tr.querySelector('.hodsmena');
+    const prescasCell = tr.querySelector('.prescas-cell');
+
+    const dovHours = parseFloat(tr.querySelector('.dov-hod').value) || 0;
+    const nvHours = parseFloat(tr.querySelector('.nv-hod').value) || 0;
+    const lekHours = parseFloat(tr.querySelector('.lek-hod').value) || 0;
+
+    let worked = 0;
+    if (prichod && odchod) {
+      let h1 = timeToHours(prichod);
+      let h2 = timeToHours(odchod);
+      let rawSpan = h2 - h1;
+      if (rawSpan < 0) rawSpan += 24; // přes půlnoc
+
+      // čas strávený u lékaře / na dovolené / na NV je součástí rozpětí příchod-odchod, odečte se
+      let actualWork = Math.max(rawSpan - (dovHours + nvHours + lekHours), 0);
+
+      // neplacená přestávka: 0,5 h za každých odpracovaných 6 hodin (počítáno ze skutečně odpracovaného času)
+      const breaks = Math.floor(actualWork / 6) * 0.5;
+      worked = Math.max(actualWork - breaks, 0);
+    }
+
+    let overtimeHours = 0;
+    const isHoliday = tr.dataset.holiday === '1';
+
+    if (isHoliday) {
+      // celá odpracovaná doba ve státní svátek je zároveň přesčas
+      overtimeHours = worked;
+    } else {
+      // přesčas je jen skutečně odpracovaný čas nad 7,5 h - dovolená/NV/lékař to nijak neovlivňují
+      overtimeHours = Math.max(worked - SHIFT_LENGTH, 0);
+    }
+
+    smenaCell.textContent = worked.toFixed(1);
+    prescasCell.textContent = overtimeHours.toFixed(1);
+
+    totalSmena += worked;
+    totalPre += overtimeHours;
+    totalDov += dovHours;
+    totalNv += nvHours;
+    totalLek += lekHours;
+  });
+
+  document.getElementById('sumSmena').textContent = totalSmena.toFixed(1);
+  document.getElementById('sumDovolena').textContent = totalDov.toFixed(1);
+  document.getElementById('sumNv').textContent = totalNv.toFixed(1);
+  document.getElementById('sumPrescas').textContent = totalPre.toFixed(1);
+  document.getElementById('sumLekar').textContent = totalLek.toFixed(1);
+}
+
+tbody.addEventListener('input', () => { recalc(); scheduleSave(); });
+tbody.addEventListener('change', handleCelyToggle);
+document.getElementById('jmeno').addEventListener('input', scheduleSave);
+document.getElementById('mesic').addEventListener('change', switchMonth);
+document.getElementById('rok').addEventListener('change', switchMonth);
+
+// --- ukládání a načítání dat (persistuje mezi otevřeními stránky) ---
+let currentKey = null;
+let saveTimer = null;
+const saveStatus = document.getElementById('saveStatus');
+
+function clearAllRowInputs() {
+  tbody.querySelectorAll('input[type="text"], input[type="time"], input[type="number"]').forEach(i => {
+    i.value = '';
+    i.disabled = false;
+  });
+  tbody.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.checked = false;
+    cb.disabled = false;
+  });
+}
+
+async function saveCurrentMonth() {
+  if (!currentKey || !window.storage) return;
+  const rows = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    rows.push({
+      day: tr.dataset.day,
+      prichod: tr.querySelector('.prichod').value,
+      odchod: tr.querySelector('.odchod').value,
+      dovHod: tr.querySelector('.dov-hod').value,
+      dovCely: tr.querySelector('.dov-cely').checked,
+      nvHod: tr.querySelector('.nv-hod').value,
+      nvCely: tr.querySelector('.nv-cely').checked,
+      lekHod: tr.querySelector('.lek-hod').value,
+      lekCely: tr.querySelector('.lek-cely').checked,
+      poznamka: tr.querySelector('.poznamka').value
+    });
+  });
+  const data = { jmeno: document.getElementById('jmeno').value, rows };
+  try {
+    await window.storage.set('dochazka:' + currentKey, JSON.stringify(data), false);
+    if (saveStatus) saveStatus.textContent = 'Uloženo ' + new Date().toLocaleTimeString('cs-CZ');
+  } catch (err) {
+    if (saveStatus) saveStatus.textContent = 'Uložení se nezdařilo';
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  if (saveStatus) saveStatus.textContent = 'Ukládám…';
+  saveTimer = setTimeout(saveCurrentMonth, 600);
+}
+
+async function loadCurrentMonth() {
+  if (!currentKey || !window.storage) return;
+  try {
+    const result = await window.storage.get('dochazka:' + currentKey, false);
+    if (result && result.value) {
+      const data = JSON.parse(result.value);
+      if (data.jmeno) document.getElementById('jmeno').value = data.jmeno;
+      (data.rows || []).forEach(r => {
+        const tr = tbody.querySelector('tr[data-day="' + r.day + '"]');
+        if (!tr) return;
+        tr.querySelector('.prichod').value = r.prichod || '';
+        tr.querySelector('.odchod').value = r.odchod || '';
+        tr.querySelector('.dov-hod').value = r.dovHod || '';
+        tr.querySelector('.dov-cely').checked = !!r.dovCely;
+        tr.querySelector('.nv-hod').value = r.nvHod || '';
+        tr.querySelector('.nv-cely').checked = !!r.nvCely;
+        tr.querySelector('.lek-hod').value = r.lekHod || '';
+        tr.querySelector('.lek-cely').checked = !!r.lekCely;
+        tr.querySelector('.poznamka').value = r.poznamka || '';
+        applyLockFromState(tr);
+      });
+      if (saveStatus) saveStatus.textContent = 'Načteno z uložených dat';
+    } else {
+      if (saveStatus) saveStatus.textContent = '';
+    }
+  } catch (err) {
+    // pro tento měsíc zatím nic uloženo není - v pořádku, nic se nenačte
+    if (saveStatus) saveStatus.textContent = '';
+  }
+  recalc();
+}
+
+async function switchMonth() {
+  await saveCurrentMonth(); // uložit rozpracovaný měsíc před přepnutím
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  currentKey = year + '-' + month;
+  clearAllRowInputs();
+  rebuildCalendar();
+  await loadCurrentMonth();
+}
+
+switchMonth();
+
+function resetTable() {
+  if (!confirm('Opravdu vymazat všechny zadané hodnoty pro tento měsíc?')) return;
+  clearAllRowInputs();
+  recalc();
+  if (currentKey && window.storage) {
+    window.storage.delete('dochazka:' + currentKey, false).catch(() => {});
+  }
+  if (saveStatus) saveStatus.textContent = 'Vymazáno';
+}
+</script>
+
+</body>
+</html>
