@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Kontrolní list docházky</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script type="module">
+  // --- Firebase (projekt: flowserve-komentare) - ukládání dat podle jména, bez přihlašování ---
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCN4GLupQ-KGJDnskNZbv1hqDyC9mddljg",
+    authDomain: "flowserve-komentare.firebaseapp.com",
+    projectId: "flowserve-komentare",
+    storageBucket: "flowserve-komentare.firebasestorage.app",
+    messagingSenderId: "485314474217",
+    appId: "1:485314474217:web:01df7f7dcd18c39bb18078"
+  };
+
+  let db = null;
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  } catch (err) {
+    console.error('Firebase se nepodařilo inicializovat:', err);
+  }
+
+  // dochazka/{zamestnanecSlug}/months/{rok-mesic}
+  window.dbSaveMonth = async function (slug, key, data) {
+    if (!db) return false;
+    try {
+      await setDoc(doc(db, 'dochazka', slug, 'months', key), data);
+      return true;
+    } catch (err) {
+      console.error('Uložení do Firestore selhalo:', err);
+      return false;
+    }
+  };
+
+  window.dbLoadMonth = async function (slug, key) {
+    if (!db) return null;
+    try {
+      const snap = await getDoc(doc(db, 'dochazka', slug, 'months', key));
+      return snap.exists() ? snap.data() : null;
+    } catch (err) {
+      console.error('Načtení z Firestore selhalo:', err);
+      return null;
+    }
+  };
+
+  window.dbDeleteMonth = async function (slug, key) {
+    if (!db) return false;
+    try {
+      await deleteDoc(doc(db, 'dochazka', slug, 'months', key));
+      return true;
+    } catch (err) {
+      console.error('Smazání ve Firestore selhalo:', err);
+      return false;
+    }
+  };
+
+  // evidence zaměstnanců - jen aby šlo ve správě vybrat "kdo je kdo"
+  window.dbUpsertEmployee = async function (slug, jmeno, smena) {
+    if (!db) return false;
+    try {
+      await setDoc(doc(db, 'zamestnanci', slug), { jmeno: jmeno || slug, smena: smena || 'B', updatedAt: new Date().toISOString() }, { merge: true });
+      return true;
+    } catch (err) {
+      console.error('Uložení zaměstnance selhalo:', err);
+      return false;
+    }
+  };
+
+  window.dbListEmployees = async function () {
+    if (!db) return [];
+    try {
+      const snap = await getDocs(collection(db, 'zamestnanci'));
+      const out = [];
+      snap.forEach(d => out.push({ slug: d.id, ...d.data() }));
+      out.sort((a, b) => (a.jmeno || '').localeCompare(b.jmeno || '', 'cs'));
+      return out;
+    } catch (err) {
+      console.error('Načtení seznamu zaměstnanců selhalo:', err);
+      return [];
+    }
+  };
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    background: #eef1f6;
+    margin: 0;
+    padding: 24px;
+    color: #1f2937;
+  }
+  .topbar {
+    max-width: 1300px;
+    margin: 0 auto 10px auto;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .topbar button {
+    border: 1px solid #16324f;
+    background: #fff;
+    color: #16324f;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .topbar button:hover { background: #f2f5f9; }
+
+  .sheet {
+    max-width: 1300px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 26px 28px;
+    border: 1px solid #dfe4ea;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 10px 28px rgba(15,23,42,.05);
+  }
+  h1 {
+    text-align: center;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    color: #16324f;
+    margin: 0 0 18px 0;
+  }
+  h2.section-title {
+    color: #16324f;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 26px 0 10px 0;
+    border-bottom: 1px solid #e5e9ef;
+    padding-bottom: 6px;
+  }
+  .top-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .top-info .fields {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .top-info label {
+    font-weight: 600;
+    color: #475569;
+    margin-right: 4px;
+    font-size: 14px;
+  }
+  .top-info input, .top-info select {
+    border: none;
+    border-bottom: 1.5px solid #c7cfd9;
+    font-size: 14px;
+    padding: 3px 4px;
+    color: #16324f;
+    background: transparent;
+  }
+  .top-info input:focus, .top-info select:focus {
+    outline: none;
+    border-bottom-color: #16324f;
+  }
+  table.main {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+  }
+  table.main th, table.main td {
+    border: 1px solid #dfe4ea;
+    text-align: center;
+    padding: 3px;
+    font-size: 13px;
+  }
+  table.main th {
+    background: #eef2f7;
+    color: #16324f;
+    font-weight: 600;
+    padding: 6px 3px;
+  }
+  col.datum { width: 45px; }
+  col.time  { width: 7%; }
+  col.abs   { width: 11%; }
+  col.pozn  { width: auto; }
+
+  th.col-dovolena, td.col-dovolena { background: #dceafb; }
+  th.col-nv,       td.col-nv       { background: #ddefd0; }
+  th.col-prescas,  td.col-prescas  { background: #fbe3c6; }
+  th.col-lekar,    td.col-lekar    { background: #f6d3d3; }
+  td.col-dovolena, td.col-nv, td.col-prescas, td.col-lekar { color: #1f2937; }
+
+  table.main input {
+    width: 100%;
+    border: none;
+    text-align: center;
+    font-size: 13px;
+    background: transparent;
+    color: #1f2937;
+  }
+  table.main input:focus { background: #fff6cf; outline: none; }
+
+  td.hodsmena { font-weight: 600; background:#f7f9fb; color:#16324f; }
+  td.prescas-cell { font-weight: 600; color: #7a3b12; }
+
+  /* zvýraznění víkendů a státních svátků - jen na sloupcích bez vlastní barvy */
+  tr.weekend td:nth-child(1),
+  tr.weekend td:nth-child(2),
+  tr.weekend td:nth-child(3),
+  tr.weekend td:nth-child(4),
+  tr.weekend td:nth-child(9) { background: #fdecc8; }
+
+  tr.holiday td:nth-child(1),
+  tr.holiday td:nth-child(2),
+  tr.holiday td:nth-child(3),
+  tr.holiday td:nth-child(4),
+  tr.holiday td:nth-child(9) { background: #f9d0d0; }
+
+  .legend {
+    display: flex;
+    gap: 22px;
+    align-items: center;
+    font-size: 12.5px;
+    color: #475569;
+    margin: 10px 0 6px 0;
+    flex-wrap: wrap;
+  }
+  .legend span.swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid #c7cfd9;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 5px;
+  }
+  .swatch.weekend { background: #fdecc8; }
+  .swatch.holiday { background: #f9d0d0; }
+
+  tr.uzaverka-row td {
+    font-weight: 600;
+    background: #f4f6f9;
+    color: #16324f;
+  }
+  tr.uzaverka-label td {
+    font-weight: 600;
+    background: #eef2f7;
+    color: #475569;
+    font-size: 11.5px;
+  }
+
+  .footer-note {
+    margin-top: 18px;
+    color: #9a3939;
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+  .controls {
+    text-align: center;
+    margin: 22px 0;
+  }
+  .controls button {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px 20px;
+    margin: 0 6px;
+    cursor: pointer;
+    border: 1px solid #16324f;
+    background: #16324f;
+    color: #fff;
+    border-radius: 6px;
+    transition: background .15s, transform .05s;
+  }
+  .controls button:hover { background: #1e4266; }
+  .controls button:active { transform: translateY(1px); }
+  .controls button.secondary {
+    background: #fff;
+    color: #16324f;
+  }
+  .controls button.secondary:hover { background: #f2f5f9; }
+
+  .mgmt-filters {
+    display: flex;
+    gap: 20px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .mgmt-filters div { display: flex; flex-direction: column; gap: 4px; }
+  .mgmt-filters label { font-size: 12.5px; font-weight: 600; color: #475569; }
+  .mgmt-filters select, .mgmt-filters input {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13.5px;
+  }
+  .mgmt-note {
+    font-size: 12px;
+    color: #64748b;
+    margin: 4px 0 18px 0;
+  }
+  .chart-box {
+    background: #fafbfc;
+    border: 1px solid #e5e9ef;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 22px;
+  }
+  .chart-box canvas { max-height: 320px; }
+
+
+  .management-dashboard{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin:18px 0 24px}
+  .dashboard-card{background:linear-gradient(145deg,#fff,#f5f8fc);border:1px solid #dce4ee;border-radius:14px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.06)}
+  .dashboard-card span{font-size:22px;display:block;margin-bottom:8px}.dashboard-card strong{display:block;font-size:24px;color:#16324f}.dashboard-card small{color:#64748b}
+  .manager-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+  .manager-panel{background:#fff;border:1px solid #dce4ee;border-radius:14px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.05)}
+  .panel-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}.panel-heading h2{margin:0;color:#16324f;font-size:17px}
+  .small-action,.primary-action{border:0;border-radius:9px;padding:8px 13px;font-weight:700;cursor:pointer}
+  .small-action{background:#eef3f8;color:#16324f}.primary-action{background:#16324f;color:#fff;margin-top:14px}
+  .employee-list{display:grid;gap:8px;max-height:310px;overflow:auto}
+  .employee-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #e5eaf0;border-radius:10px;background:#fafbfd}
+  .employee-name{font-weight:700;color:#243447}.employee-shift{font-size:12px;font-weight:800;background:#e8eef6;color:#16324f;padding:4px 8px;border-radius:99px}
+  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.settings-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:#475569}
+  .settings-grid input{border:1px solid #cbd5e1;border-radius:8px;padding:9px}.settings-checks{display:grid;gap:8px;margin-top:14px;font-size:13px;color:#475569}
+  .settings-status{font-size:12px;margin-left:8px;color:#64748b}.export-panel{margin-bottom:22px}.year-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .summary-person{border:1px solid #e5eaf0;border-radius:10px;padding:10px;background:#fafbfd}.summary-person strong{display:block;color:#16324f}.summary-person span{font-size:12px;color:#64748b}
+  @media(max-width:900px){.management-dashboard{grid-template-columns:repeat(2,1fr)}.manager-grid{grid-template-columns:1fr}.year-summary{grid-template-columns:1fr 1fr}}
+  @media(max-width:600px){.management-dashboard{grid-template-columns:1fr}.settings-grid{grid-template-columns:1fr}.year-summary{grid-template-columns:1fr}}
+
+  @media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    body { background: #fff; padding: 0; }
+    .sheet { border: none; padding: 0; }
+    .no-print { display: none !important; }
+    .uzaverka-row, .uzaverka-label, .uzaverka-title { display: none !important; }
+    table.main input { border: none; }
+    table.main input::placeholder { color: transparent !important; }
+    #printWrap { overflow: hidden; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar no-print">
+  <button onclick="toggleManage()" id="btnToggleManage">Správa pro vedoucí</button>
+</div>
+
+<div id="printWrap">
+<div class="sheet" id="mainSheet">
+  <h1>Kontrolní list docházky</h1>
+
+  <div class="top-info">
+    <div class="fields">
+      <div><label>Jméno pracovníka:</label><input type="text" id="jmeno" size="25" placeholder="napiš své jméno"></div>
+      <div><label>Směna:</label>
+        <select id="smena">
+          <option value="B">B</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+        </select>
+      </div>
+      <div><label>Měsíc:</label>
+        <select id="mesic">
+          <option value="1">Leden</option>
+          <option value="2">Únor</option>
+          <option value="3">Březen</option>
+          <option value="4">Duben</option>
+          <option value="5">Květen</option>
+          <option value="6">Červen</option>
+          <option value="7">Červenec</option>
+          <option value="8">Srpen</option>
+          <option value="9" selected>Září</option>
+          <option value="10">Říjen</option>
+          <option value="11">Listopad</option>
+          <option value="12">Prosinec</option>
+        </select>
+      </div>
+      <div><label>Rok:</label><input type="number" id="rok" size="6" value="2026"></div>
+    </div>
+  </div>
+
+  <div class="legend no-print">
+    <div><span class="swatch weekend"></span>Víkend</div>
+    <div><span class="swatch holiday"></span>Státní svátek (odpracované hodiny jdou do přesčasu)</div>
+    <div>Směna = 7,5 h. Přesčas se počítá automaticky z Příchodu/Odchodu (nad 7,5 h/den, celý svátek/víkend).</div>
+    <div>Dovolená/NV/Lékař se píší ručně v hodinách.</div>
+  </div>
+
+  <table class="main" id="dochazkaTable">
+    <colgroup>
+      <col class="datum">
+      <col class="time"><col class="time"><col class="time">
+      <col class="abs"><col class="abs"><col class="time"><col class="abs">
+      <col class="pozn">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Datum</th>
+        <th>Příchod</th>
+        <th>Odchod</th>
+        <th>Hod/<br>Směna</th>
+        <th class="col-dovolena">Dovolená</th>
+        <th class="col-nv">NV</th>
+        <th class="col-prescas">Přesčas</th>
+        <th class="col-lekar">Lékař/<br>nemoc</th>
+        <th>Poznámka</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+    <tfoot>
+      <tr class="uzaverka-label">
+        <td colspan="3">Uzávěrka</td>
+        <td>Hod.<br>Celkem</td>
+        <td class="col-dovolena">Hod.<br>Celkem</td>
+        <td class="col-nv">Hod.<br>Celkem</td>
+        <td class="col-prescas">Hod.<br>Celkem</td>
+        <td class="col-lekar">Hod.<br>Celkem</td>
+        <td></td>
+      </tr>
+      <tr class="uzaverka-row">
+        <td colspan="3"></td>
+        <td id="sumSmena">0.0</td>
+        <td class="col-dovolena" id="sumDovolena">0.0</td>
+        <td class="col-nv" id="sumNv">0.0</td>
+        <td class="col-prescas" id="sumPrescas">0.0</td>
+        <td class="col-lekar" id="sumLekar">0.0</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="footer-note">Nárok na extra bonus na stravování :</div>
+</div>
+
+<div class="sheet" id="manageSheet" style="display:none;">
+  <h1>Správa pro vedoucí</h1>
+
+  <div class="mgmt-filters no-print">
+    <div>
+      <label>Rok</label>
+      <input type="number" id="mgmtRok" value="2026">
+    </div>
+    <div>
+      <label>Zaměstnanec</label>
+      <select id="mgmtEmployee">
+        <option value="ALL">Všichni zaměstnanci</option>
+      </select>
+    </div>
+    <div>
+      <button onclick="buildManagementCharts()" style="border:1px solid #16324f;background:#16324f;color:#fff;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">Aktualizovat</button>
+    </div>
+  </div>
+  <div class="mgmt-note" id="mgmtStatus">Vyber rok a zaměstnance a klikni na Aktualizovat.</div>
+
+  <div class="management-dashboard">
+    <div class="dashboard-card"><span>👥</span><strong id="statEmployees">0</strong><small>Zaměstnanců</small></div>
+    <div class="dashboard-card"><span>⏱</span><strong id="statWorked">0.0 h</strong><small>Odpracováno</small></div>
+    <div class="dashboard-card"><span>➕</span><strong id="statOvertime">0.0 h</strong><small>Přesčas</small></div>
+    <div class="dashboard-card"><span>🏖</span><strong id="statVacation">0.0 h</strong><small>Dovolená</small></div>
+    <div class="dashboard-card"><span>🏥</span><strong id="statSick">0.0 h</strong><small>Lékař / nemoc</small></div>
+  </div>
+
+  <div class="manager-grid">
+    <section class="manager-panel">
+      <div class="panel-heading"><h2>👤 Zaměstnanci</h2><button onclick="refreshManagement()" class="small-action">Obnovit</button></div>
+      <div id="employeeList" class="employee-list"></div>
+    </section>
+
+    <section class="manager-panel">
+      <div class="panel-heading"><h2>⚙️ Nastavení výpočtů</h2></div>
+      <div class="settings-grid">
+        <label>Délka směny (h)<input id="setShiftLength" type="number" step="0.5" value="7.5"></label>
+        <label>Pauza po (h)<input id="setBreakAfter" type="number" step="0.5" value="6"></label>
+        <label>Délka pauzy (h)<input id="setBreakLength" type="number" step="0.5" value="0.5"></label>
+        <label>Přesčas nad (h)<input id="setOvertimeAfter" type="number" step="0.5" value="7.5"></label>
+      </div>
+      <div class="settings-checks">
+        <label><input id="setWeekendOvertime" type="checkbox" checked> Víkend celý jako přesčas</label>
+        <label><input id="setHolidayOvertime" type="checkbox" checked> Svátek celý jako přesčas</label>
+      </div>
+      <button onclick="saveManagementSettings()" class="primary-action">Uložit nastavení</button>
+      <span id="settingsStatus" class="settings-status"></span>
+    </section>
+  </div>
+
+  <div class="manager-panel export-panel">
+    <div class="panel-heading">
+      <h2>📊 Roční přehled</h2>
+      <button onclick="exportYearCSV()" class="small-action">Export CSV</button>
+    </div>
+    <div id="yearSummary" class="year-summary"></div>
+  </div>
+
+  <h2 class="section-title">Přesčas podle měsíce</h2>
+  <div class="chart-box"><canvas id="chartOvertime"></canvas></div>
+
+  <h2 class="section-title">Lékař / nemoc podle měsíce</h2>
+  <div class="chart-box"><canvas id="chartSick"></canvas></div>
+
+  <h2 class="section-title">Žebříček - nejvíc přesčasů za rok (všichni zaměstnanci)</h2>
+  <div class="chart-box"><canvas id="chartRankOvertime"></canvas></div>
+
+  <h2 class="section-title">Žebříček - nejvíc lékař/nemoc za rok (všichni zaměstnanci)</h2>
+  <div class="chart-box"><canvas id="chartRankSick"></canvas></div>
+</div>
+</div>
+
+<div class="controls no-print" id="mainControls">
+  <button onclick="preparePrint()">Tisk</button>
+  <button class="secondary" onclick="resetTable()">Vymazat vše</button>
+  <span id="saveStatus" style="font-size:12px;color:#666;margin-left:10px;"></span>
+</div>
+
+<script>
+const DAYS = 31;
+const tbody = document.getElementById('tbody');
+
+function timeToHours(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h + m / 60;
+}
+
+function fmtHours(x) {
+  return x > 0.001 ? x.toFixed(1) : '';
+}
+
+function slugify(name) {
+  const s = (name || '')
+    .toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s || 'zamestnanec';
+}
+
+function buildRow(day) {
+  const tr = document.createElement('tr');
+  tr.dataset.day = day;
+  tr.dataset.holiday = '0';
+  tr.innerHTML = `
+    <td class="datum-cell">${day}.</td>
+    <td><input type="time" class="prichod"></td>
+    <td><input type="time" class="odchod"></td>
+    <td class="hodsmena">0.0</td>
+    <td class="col-dovolena"><input type="number" step="0.1" min="0" class="dov-hod" placeholder="hod."></td>
+    <td class="col-nv"><input type="number" step="0.1" min="0" class="nv-hod" placeholder="hod."></td>
+    <td class="col-prescas prescas-cell">0.0</td>
+    <td class="col-lekar"><input type="number" step="0.1" min="0" class="lek-hod" placeholder="hod."></td>
+    <td><input type="text" class="poznamka"></td>
+  `;
+  return tr;
+}
+
+for (let d = 1; d <= DAYS; d++) {
+  tbody.appendChild(buildRow(d));
+}
+
+// --- výpočet velikonoční neděle (Gaussův algoritmus) ---
+function getEasterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+function getCzechHolidays(year) {
+  const easter = getEasterSunday(year);
+  const goodFriday = new Date(easter);
+  goodFriday.setDate(easter.getDate() - 2);
+  const easterMonday = new Date(easter);
+  easterMonday.setDate(easter.getDate() + 1);
+
+  const fixed = [
+    [1, 1], [5, 1], [5, 8], [7, 5], [7, 6],
+    [9, 28], [10, 28], [11, 17], [12, 24], [12, 25], [12, 26]
+  ];
+
+  const holidays = fixed.map(([m, d]) => new Date(year, m - 1, d));
+  holidays.push(goodFriday, easterMonday);
+  return holidays;
+}
+
+function daysInMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+const dayNames = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+const monthNames = ['Led','Úno','Bře','Dub','Kvě','Čvn','Čvc','Srp','Zář','Říj','Lis','Pro'];
+let SHIFT_LENGTH = 7.5;
+
+function rebuildCalendar() {
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+
+  tbody.querySelectorAll('tr').forEach((tr, idx) => {
+    const day = idx + 1;
+    tr.classList.remove('weekend', 'holiday');
+
+    if (day > numDays) {
+      tr.style.display = 'none';
+      tr.dataset.holiday = '0';
+      return;
+    }
+    tr.style.display = '';
+
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isHoliday = holidays.some(h =>
+      h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day
+    );
+
+    if (dow === 0 || dow === 6) tr.classList.add('weekend');
+    if (isHoliday) tr.classList.add('holiday');
+
+    tr.dataset.holiday = isHoliday ? '1' : '0';
+    tr.dataset.weekend = (dow === 0 || dow === 6) ? '1' : '0';
+    tr.querySelector('.datum-cell').textContent = day + '. (' + dayNames[dow] + ')';
+  });
+
+  recalc();
+}
+
+// --- výpočet jednoho dne: Příchod/Odchod -> odpracováno + přesčas (nezávisle na dov/nv/lek) ---
+function computeDay(prichod, odchod, isHoliday, isWeekend) {
+  let worked = 0;
+  if (prichod && odchod) {
+    let h1 = timeToHours(prichod);
+    let h2 = timeToHours(odchod);
+    let rawSpan = h2 - h1;
+    if (rawSpan < 0) rawSpan += 24;
+    const s=getSettings(); const breaks = Math.floor(rawSpan / s.breakAfter) * s.breakLength; // neplacená přestávka 0,5 h / 6 odpracovaných hodin
+    worked = Math.max(rawSpan - breaks, 0);
+  }
+  const s=getSettings(); const overtime = (isHoliday && s.holidayOvertime) || (isWeekend && s.weekendOvertime) ? worked : Math.max(worked - s.overtimeAfter, 0);
+  return { worked, overtime };
+}
+
+function applyLockFromState() {} // ponecháno kvůli zpětné kompatibilitě (už nic nezamyká)
+
+function recalc() {
+  let totalSmena = 0, totalDov = 0, totalNv = 0, totalPre = 0, totalLek = 0;
+
+  tbody.querySelectorAll('tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+
+    const prichod = tr.querySelector('.prichod').value;
+    const odchod = tr.querySelector('.odchod').value;
+    const smenaCell = tr.querySelector('.hodsmena');
+    const prescasCell = tr.querySelector('.prescas-cell');
+
+    const dovHours = parseFloat(tr.querySelector('.dov-hod').value) || 0;
+    const nvHours = parseFloat(tr.querySelector('.nv-hod').value) || 0;
+    const lekHours = parseFloat(tr.querySelector('.lek-hod').value) || 0;
+
+    const isHoliday = tr.dataset.holiday === '1';
+    const isWeekend = tr.dataset.weekend === '1';
+    const { worked, overtime } = computeDay(prichod, odchod, isHoliday, isWeekend);
+
+    smenaCell.textContent = fmtHours(worked);
+    prescasCell.textContent = fmtHours(overtime);
+
+    totalSmena += worked;
+    totalPre += overtime;
+    totalDov += dovHours;
+    totalNv += nvHours;
+    totalLek += lekHours;
+  });
+
+  document.getElementById('sumSmena').textContent = totalSmena.toFixed(1);
+  document.getElementById('sumDovolena').textContent = totalDov.toFixed(1);
+  document.getElementById('sumNv').textContent = totalNv.toFixed(1);
+  document.getElementById('sumPrescas').textContent = totalPre.toFixed(1);
+  document.getElementById('sumLekar').textContent = totalLek.toFixed(1);
+}
+
+tbody.addEventListener('input', () => { recalc(); scheduleSave(); });
+document.getElementById('mesic').addEventListener('change', switchMonth);
+document.getElementById('rok').addEventListener('change', switchMonth);
+document.getElementById('jmeno').addEventListener('input', () => { scheduleSave(); });
+document.getElementById('jmeno').addEventListener('change', handleNameChange);
+
+// --- identifikace podle jména (bez hesla) + ukládání/načítání ---
+let currentSlug = null;
+let currentKey = null;
+let saveTimer = null;
+const saveStatus = document.getElementById('saveStatus');
+
+function clearAllRowInputs() {
+  tbody.querySelectorAll('input[type="text"], input[type="time"], input[type="number"]').forEach(i => { i.value = ''; });
+}
+
+async function handleNameChange() {
+  const jmeno = document.getElementById('jmeno').value.trim();
+  if (!jmeno) return;
+  const newSlug = slugify(jmeno);
+  if (newSlug === currentSlug) { scheduleSave(); return; }
+  currentSlug = newSlug;
+  clearAllRowInputs();
+  recalc();
+  await loadCurrentMonth();
+}
+
+async function saveCurrentMonth() {
+  if (!currentKey || !currentSlug) return;
+  const jmeno = document.getElementById('jmeno').value.trim();
+  const rows = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    rows.push({
+      day: tr.dataset.day,
+      prichod: tr.querySelector('.prichod').value,
+      odchod: tr.querySelector('.odchod').value,
+      dovHod: tr.querySelector('.dov-hod').value,
+      nvHod: tr.querySelector('.nv-hod').value,
+      lekHod: tr.querySelector('.lek-hod').value,
+      poznamka: tr.querySelector('.poznamka').value
+    });
+  });
+  const data = { jmeno, smena: document.getElementById('smena').value || 'B', rows, updatedAt: new Date().toISOString() };
+  const ok = window.dbSaveMonth ? await window.dbSaveMonth(currentSlug, currentKey, data) : false;
+  if (ok) window.dbUpsertEmployee && window.dbUpsertEmployee(currentSlug, jmeno, document.getElementById('smena').value || 'B');
+  if (saveStatus) {
+    saveStatus.textContent = ok
+      ? 'Uloženo ' + new Date().toLocaleTimeString('cs-CZ')
+      : 'Uložení se nezdařilo (zkontroluj Firebase konfiguraci)';
+  }
+}
+
+function scheduleSave() {
+  if (!currentSlug) { if (saveStatus) saveStatus.textContent = 'Napiš nejdřív své jméno nahoře'; return; }
+  clearTimeout(saveTimer);
+  if (saveStatus) saveStatus.textContent = 'Ukládám…';
+  saveTimer = setTimeout(saveCurrentMonth, 600);
+}
+
+async function loadCurrentMonth() {
+  if (!currentKey || !currentSlug) return;
+  const data = window.dbLoadMonth ? await window.dbLoadMonth(currentSlug, currentKey) : null;
+  if (data) {
+    const sm = document.getElementById('smena'); if(sm) sm.value = data.smena || 'B';
+    (data.rows || []).forEach(r => {
+      const tr = tbody.querySelector('tr[data-day="' + r.day + '"]');
+      if (!tr) return;
+      tr.querySelector('.prichod').value = r.prichod || '';
+      tr.querySelector('.odchod').value = r.odchod || '';
+      tr.querySelector('.dov-hod').value = r.dovHod || '';
+      tr.querySelector('.nv-hod').value = r.nvHod || '';
+      tr.querySelector('.lek-hod').value = r.lekHod || '';
+      tr.querySelector('.poznamka').value = r.poznamka || '';
+    });
+    if (saveStatus) saveStatus.textContent = 'Načteno z Firebase';
+  } else {
+    if (saveStatus) saveStatus.textContent = 'Nový záznam pro tento měsíc';
+  }
+  recalc();
+}
+
+async function switchMonth() {
+  if (currentSlug) await saveCurrentMonth();
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  currentKey = year + '-' + month;
+  clearAllRowInputs();
+  rebuildCalendar();
+  if (currentSlug) {
+    await loadCurrentMonth();
+  } else if (saveStatus) {
+    saveStatus.textContent = 'Napiš nejdřív své jméno nahoře';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => { SHIFT_LENGTH = getSettings().shiftLength; rebuildCalendar(); currentKey = (parseInt(document.getElementById('rok').value)||2026) + '-' + (parseInt(document.getElementById('mesic').value)||1); });
+if (document.readyState !== 'loading') { rebuildCalendar(); currentKey = (parseInt(document.getElementById('rok').value)||2026) + '-' + (parseInt(document.getElementById('mesic').value)||1); }
+
+function resetTable() {
+  if (!currentSlug) return;
+  if (!confirm('Opravdu vymazat všechny zadané hodnoty pro tento měsíc?')) return;
+  clearAllRowInputs();
+  recalc();
+  if (currentKey && window.dbDeleteMonth) {
+    window.dbDeleteMonth(currentSlug, currentKey).catch(() => {});
+  }
+  if (saveStatus) saveStatus.textContent = 'Vymazáno';
+}
+
+// --- čistý výpočet měsíčních součtů (pro správu/grafy) ---
+function computeMonthTotals(year, month, data) {
+  const rowsByDay = {};
+  (data && data.rows || []).forEach(r => { rowsByDay[r.day] = r; });
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+
+  let totalSmena = 0, totalPre = 0, totalDov = 0, totalNv = 0, totalLek = 0;
+
+  for (let day = 1; day <= numDays; day++) {
+    const r = rowsByDay[day] || {};
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isWeekend = (dow === 0 || dow === 6);
+    const isHoliday = holidays.some(h => h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day);
+
+    const { worked, overtime } = computeDay(r.prichod, r.odchod, isHoliday, isWeekend);
+
+    totalSmena += worked;
+    totalPre += overtime;
+    totalDov += parseFloat(r.dovHod) || 0;
+    totalNv += parseFloat(r.nvHod) || 0;
+    totalLek += parseFloat(r.lekHod) || 0;
+  }
+
+  return { totalSmena, totalPre, totalDov, totalNv, totalLek };
+}
+
+// --- vždy vytisknout na jednu stránku A4 na šířku ---
+function getVisibleSheet() {
+  const sheets = document.querySelectorAll('.sheet');
+  for (const el of sheets) {
+    if (el.offsetParent !== null) return el;
+  }
+  return sheets[0] || null;
+}
+
+function fitPrintToPage() {
+  const sheet = getVisibleSheet();
+  const wrap = document.getElementById('printWrap');
+  if (!sheet || !wrap) return;
+
+  sheet.style.transform = 'none';
+  wrap.style.width = '';
+  wrap.style.height = '';
+
+  const naturalW = sheet.scrollWidth;
+  const naturalH = sheet.scrollHeight;
+
+  const pxPerMm = 96 / 25.4;
+  const pageWmm = 297, pageHmm = 210, marginMm = 8;
+  const availW = (pageWmm - marginMm * 2) * pxPerMm;
+  const availH = (pageHmm - marginMm * 2) * pxPerMm;
+
+  const scale = Math.min(1, availW / naturalW, availH / naturalH);
+
+  sheet.style.transformOrigin = 'top left';
+  sheet.style.transform = 'scale(' + scale + ')';
+  wrap.style.width = (naturalW * scale) + 'px';
+  wrap.style.height = (naturalH * scale) + 'px';
+}
+
+function resetPrintScale() {
+  const sheet = getVisibleSheet();
+  const wrap = document.getElementById('printWrap');
+  if (!sheet || !wrap) return;
+  sheet.style.transform = 'none';
+  wrap.style.width = '';
+  wrap.style.height = '';
+}
+
+function preparePrint() {
+  fitPrintToPage();
+  setTimeout(() => window.print(), 50);
+}
+
+window.addEventListener('beforeprint', fitPrintToPage);
+window.addEventListener('afterprint', resetPrintScale);
+
+
+  // --- Rozšířené nastavení a směny ---
+  let managementCache = null;
+  const DEFAULT_SETTINGS = {
+    shiftLength: 7.5, breakAfter: 6, breakLength: 0.5,
+    overtimeAfter: 7.5, weekendOvertime: true, holidayOvertime: true
+  };
+
+  function getSettings(){
+    try { return {...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('dochazkaSettings') || '{}')}; }
+    catch(e){ return {...DEFAULT_SETTINGS}; }
+  }
+  function loadSettingsUI(){
+    const s=getSettings();
+    document.getElementById('setShiftLength').value=s.shiftLength;
+    document.getElementById('setBreakAfter').value=s.breakAfter;
+    document.getElementById('setBreakLength').value=s.breakLength;
+    document.getElementById('setOvertimeAfter').value=s.overtimeAfter;
+    document.getElementById('setWeekendOvertime').checked=s.weekendOvertime;
+    document.getElementById('setHolidayOvertime').checked=s.holidayOvertime;
+  }
+  function saveManagementSettings(){
+    const s={
+      shiftLength:+document.getElementById('setShiftLength').value||7.5,
+      breakAfter:+document.getElementById('setBreakAfter').value||6,
+      breakLength:+document.getElementById('setBreakLength').value||0.5,
+      overtimeAfter:+document.getElementById('setOvertimeAfter').value||7.5,
+      weekendOvertime:document.getElementById('setWeekendOvertime').checked,
+      holidayOvertime:document.getElementById('setHolidayOvertime').checked
+    };
+    localStorage.setItem('dochazkaSettings',JSON.stringify(s));
+    window.SHIFT_LENGTH=s.shiftLength;
+    const st=document.getElementById('settingsStatus'); if(st) st.textContent='Nastavení uloženo';
+    recalc();
+  }
+  function renderEmployeeList(employees){
+    const el=document.getElementById('employeeList'); if(!el)return;
+    el.innerHTML='';
+    if(!employees.length){el.innerHTML='<div class="mgmt-note">Zatím nejsou evidováni žádní zaměstnanci.</div>';return;}
+    employees.forEach(e=>{
+      const row=document.createElement('div'); row.className='employee-row';
+      row.innerHTML='<span class="employee-name"></span><span class="employee-shift"></span>';
+      row.querySelector('.employee-name').textContent=e.jmeno||e.slug;
+      row.querySelector('.employee-shift').textContent='Směna '+(e.smena||'B');
+      el.appendChild(row);
+    });
+  }
+  function renderStats(data){
+    let worked=0,overtime=0,vacation=0,sick=0;
+    Object.values(data.perEmployee||{}).forEach(e=>e.monthly.forEach(t=>{
+      worked+=t.totalSmena;overtime+=t.totalPre;vacation+=t.totalDov;sick+=t.totalLek;
+    }));
+    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+    set('statEmployees',data.employees.length);
+    set('statWorked',worked.toFixed(1)+' h'); set('statOvertime',overtime.toFixed(1)+' h');
+    set('statVacation',vacation.toFixed(1)+' h'); set('statSick',sick.toFixed(1)+' h');
+  }
+  function renderYearSummary(data){
+    const el=document.getElementById('yearSummary');if(!el)return;el.innerHTML='';
+    Object.values(data.perEmployee||{}).forEach(e=>{
+      const t=e.monthly.reduce((a,x)=>({w:a.w+x.totalSmena,o:a.o+x.totalPre,d:a.d+x.totalDov,l:a.l+x.totalLek}),{w:0,o:0,d:0,l:0});
+      const div=document.createElement('div');div.className='summary-person';
+      div.innerHTML='<strong></strong><span></span>';
+      div.querySelector('strong').textContent=e.jmeno;
+      div.querySelector('span').textContent=`Směna B/C/D dle evidence · ${t.w.toFixed(1)} h práce · ${t.o.toFixed(1)} h přesčas · ${t.d.toFixed(1)} h dovolená · ${t.l.toFixed(1)} h lékař/nemoc`;
+      el.appendChild(div);
+    });
+  }
+  async function refreshManagement(){
+    loadSettingsUI();
+    await populateMgmtEmployees();
+    await buildManagementCharts();
+  }
+  function exportYearCSV(){
+    if(!managementCache)return;
+    const rows=[['Zaměstnanec','Směna','Odpracováno','Přesčas','Dovolená','NV','Lékař/nemoc']];
+    managementCache.employees.forEach(emp=>{
+      const e=managementCache.perEmployee[emp.slug];
+      const t=e.monthly.reduce((a,x)=>({w:a.w+x.totalSmena,o:a.o+x.totalPre,d:a.d+x.totalDov,n:a.n+x.totalNv,l:a.l+x.totalLek}),{w:0,o:0,d:0,n:0,l:0});
+      rows.push([e.jmeno,emp.smena||'B',t.w.toFixed(1),t.o.toFixed(1),t.d.toFixed(1),t.n.toFixed(1),t.l.toFixed(1)]);
+    });
+    const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\n');
+    const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='dochazka-'+(document.getElementById('mgmtRok').value||'rok')+'.csv';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),500);
+  }
+
+
+  // --- Správa pro vedoucí ---
+let manageVisible = false;
+let charts = {};
+
+async function toggleManage() {
+  manageVisible = !manageVisible;
+  document.getElementById('mainSheet').style.display = manageVisible ? 'none' : '';
+  document.getElementById('manageSheet').style.display = manageVisible ? '' : 'none';
+  document.getElementById('mainControls').style.display = manageVisible ? 'none' : '';
+  document.getElementById('btnToggleManage').textContent = manageVisible ? 'Zpět na docházku' : 'Správa pro vedoucí';
+  if (manageVisible) {
+    document.getElementById('mgmtRok').value = document.getElementById('rok').value || 2026;
+    await populateMgmtEmployees();
+    loadSettingsUI();
+    await buildManagementCharts();
+  }
+}
+
+async function populateMgmtEmployees() {
+  const sel = document.getElementById('mgmtEmployee');
+  const employees = await window.dbListEmployees();
+  const current = sel.value || 'ALL';
+  sel.innerHTML = '<option value="ALL">Všichni zaměstnanci</option>';
+  employees.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.slug;
+    opt.textContent = e.jmeno || e.slug;
+    sel.appendChild(opt);
+  });
+  sel.value = current;
+}
+
+async function gatherYearData(year) {
+  const employees = await window.dbListEmployees();
+  const perEmployee = {};
+  for (const emp of employees) {
+    const monthly = [];
+    for (let m = 1; m <= 12; m++) {
+      const data = await window.dbLoadMonth(emp.slug, year + '-' + m);
+      monthly.push(computeMonthTotals(year, m, data));
+    }
+    perEmployee[emp.slug] = { jmeno: emp.jmeno || emp.slug, monthly };
+  }
+  return { employees, perEmployee };
+}
+
+function drawBarLineChart(canvasId, labels, datasets, stacked) {
+  const ctx = document.getElementById(canvasId);
+  if (charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: datasets.length > 1 } },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'hodiny' } }
+      }
+    }
+  });
+}
+
+function drawRankChart(canvasId, labels, values, color) {
+  const ctx = document.getElementById(canvasId);
+  if (charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ data: values, backgroundColor: color }] },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, title: { display: true, text: 'hodiny za rok' } } }
+    }
+  });
+}
+
+async function buildManagementCharts() {
+  const status = document.getElementById('mgmtStatus');
+  status.textContent = 'Načítám data…';
+  try {
+    const year = parseInt(document.getElementById('mgmtRok').value) || 2026;
+    const selectedSlug = document.getElementById('mgmtEmployee').value;
+
+    const { employees, perEmployee } = await gatherYearData(year);
+    managementCache={employees,perEmployee};
+    renderStats(managementCache);
+    renderEmployeeList(employees);
+    renderYearSummary(managementCache);
+
+    if (employees.length === 0) {
+    status.textContent = 'Zatím nikdo neuložil žádná data.';
+    return;
+  }
+
+  // --- trend podle měsíce (přesčas + lékař) ---
+  let monthlyOvertime = new Array(12).fill(0);
+  let monthlySick = new Array(12).fill(0);
+
+  if (selectedSlug === 'ALL') {
+    Object.values(perEmployee).forEach(emp => {
+      emp.monthly.forEach((t, idx) => {
+        monthlyOvertime[idx] += t.totalPre;
+        monthlySick[idx] += t.totalLek;
+      });
+    });
+  } else if (perEmployee[selectedSlug]) {
+    perEmployee[selectedSlug].monthly.forEach((t, idx) => {
+      monthlyOvertime[idx] = t.totalPre;
+      monthlySick[idx] = t.totalLek;
+    });
+  }
+
+  drawBarLineChart('chartOvertime', monthNames, [{ label: 'Přesčas (h)', data: monthlyOvertime, backgroundColor: '#f2994a' }]);
+  drawBarLineChart('chartSick', monthNames, [{ label: 'Lékař/nemoc (h)', data: monthlySick, backgroundColor: '#e07a7a' }]);
+
+  // --- žebříčky za rok (vždy všichni zaměstnanci) ---
+  const rankOvertime = employees.map(e => ({
+    name: e.jmeno || e.slug,
+    total: perEmployee[e.slug].monthly.reduce((s, t) => s + t.totalPre, 0)
+  })).sort((a, b) => b.total - a.total).slice(0, 20);
+
+  const rankSick = employees.map(e => ({
+    name: e.jmeno || e.slug,
+    total: perEmployee[e.slug].monthly.reduce((s, t) => s + t.totalLek, 0)
+  })).sort((a, b) => b.total - a.total).slice(0, 20);
+
+  drawRankChart('chartRankOvertime', rankOvertime.map(r => r.name), rankOvertime.map(r => +r.total.toFixed(1)), '#f2994a');
+  drawRankChart('chartRankSick', rankSick.map(r => r.name), rankSick.map(r => +r.total.toFixed(1)), '#e07a7a');
+
+    status.textContent = 'Aktualizováno ' + new Date().toLocaleTimeString('cs-CZ') + ' · ' + employees.length + ' zaměstnanců';
+  } catch (err) {
+    console.error('Správa vedoucího:', err);
+    status.textContent = 'Správu se nepodařilo načíst. Zkontroluj připojení k Firebase.';
+  }
+}
+
+  document.getElementById('mgmtEmployee')?.addEventListener('change', buildManagementCharts);
+  document.getElementById('mgmtRok')?.addEventListener('change', buildManagementCharts);
+  document.getElementById('smena')?.addEventListener('change', scheduleSave);
+
+</script>
+
+</body>
+</html>
