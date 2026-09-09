@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Kontrolní list docházky</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script type="module">
+  // --- Firebase (projekt: flowserve-komentare) - identifikace podle firemního ID, bez opravdového přihlašování ---
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCN4GLupQ-KGJDnskNZbv1hqDyC9mddljg",
+    authDomain: "flowserve-komentare.firebaseapp.com",
+    projectId: "flowserve-komentare",
+    storageBucket: "flowserve-komentare.firebasestorage.app",
+    messagingSenderId: "485314474217",
+    appId: "1:485314474217:web:01df7f7dcd18c39bb18078"
+  };
+
+  let db = null;
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  } catch (err) {
+    console.error('Firebase se nepodařilo inicializovat:', err);
+  }
+
+  window.dbSaveMonth = async function (slug, key, data) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try { await setDoc(doc(db, 'dochazka', slug, 'months', key), data); return { ok: true }; }
+    catch (err) { console.error('Uložení do Firestore selhalo:', err); return { ok: false, error: err.code || err.message }; }
+  };
+
+  window.dbLoadMonth = async function (slug, key) {
+    if (!db) return null;
+    try {
+      const snap = await getDoc(doc(db, 'dochazka', slug, 'months', key));
+      return snap.exists() ? snap.data() : null;
+    } catch (err) { console.error('Načtení z Firestore selhalo:', err); return null; }
+  };
+
+  window.dbDeleteMonth = async function (slug, key) {
+    if (!db) return false;
+    try { await deleteDoc(doc(db, 'dochazka', slug, 'months', key)); return true; }
+    catch (err) { console.error('Smazání ve Firestore selhalo:', err); return false; }
+  };
+
+  window.dbUpsertEmployee = async function (slug, fields) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try {
+      await setDoc(doc(db, 'zamestnanci', slug), { ...fields, updatedAt: new Date().toISOString() }, { merge: true });
+      return { ok: true };
+    } catch (err) { console.error('Uložení zaměstnance selhalo:', err); return { ok: false, error: err.code || err.message }; }
+  };
+
+  window.dbGetEmployee = async function (slug) {
+    if (!db) return null;
+    try {
+      const snap = await getDoc(doc(db, 'zamestnanci', slug));
+      return snap.exists() ? snap.data() : null;
+    } catch (err) { console.error('Načtení zaměstnance selhalo:', err); throw err; }
+  };
+
+  window.dbListEmployees = async function () {
+    if (!db) return [];
+    try {
+      const snap = await getDocs(collection(db, 'zamestnanci'));
+      const out = [];
+      snap.forEach(d => out.push({ slug: d.id, ...d.data() }));
+      out.sort((a, b) => (a.jmeno || '').localeCompare(b.jmeno || '', 'cs'));
+      return out;
+    } catch (err) { console.error('Načtení seznamu zaměstnanců selhalo:', err); return []; }
+  };
+
+  window.dbAddVacationRequest = async function (slug, jmeno, dateFrom, dateTo) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try {
+      const ref = doc(collection(db, 'zadosti', slug, 'items'));
+      await setDoc(ref, { jmeno, dateFrom, dateTo, status: 'pending', createdAt: new Date().toISOString() });
+      return { ok: true, id: ref.id };
+    } catch (err) { console.error('Odeslání žádosti selhalo:', err); return { ok: false, error: err.code || err.message }; }
+  };
+
+  window.dbListVacationRequests = async function (slug) {
+    if (!db) return [];
+    try {
+      const snap = await getDocs(collection(db, 'zadosti', slug, 'items'));
+      const out = [];
+      snap.forEach(d => out.push({ id: d.id, ...d.data() }));
+      return out;
+    } catch (err) { console.error('Načtení žádostí selhalo:', err); return []; }
+  };
+
+  window.dbUpdateVacationRequest = async function (slug, requestId, updates) {
+    if (!db) return false;
+    try { await setDoc(doc(db, 'zadosti', slug, 'items', requestId), updates, { merge: true }); return true; }
+    catch (err) { console.error('Aktualizace žádosti selhala:', err); return false; }
+  };
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    background: #eef1f6; margin: 0; padding: 24px; color: #1f2937;
+  }
+  .topbar { max-width: 1300px; margin: 0 auto 10px auto; display: flex; justify-content: flex-end; }
+  .topbar button {
+    border: 1px solid #16324f; background: #fff; color: #16324f; border-radius: 6px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .topbar button:hover { background: #f2f5f9; }
+
+  .sheet {
+    max-width: 1300px; margin: 0 auto; background: #fff; padding: 26px 28px;
+    border: 1px solid #dfe4ea; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 10px 28px rgba(15,23,42,.05);
+  }
+  h1 { text-align: center; font-size: 24px; font-weight: 600; letter-spacing: .2px; color: #16324f; margin: 0 0 18px 0; }
+  h2.section-title { color: #16324f; font-size: 15px; font-weight: 700; margin: 0 0 12px 0; }
+
+  /* --- vstupní karta (identifikace) --- */
+  .id-card {
+    background: linear-gradient(135deg, #f0f6fb, #e6f0fa);
+    border: 1px solid #cfe0f0; border-radius: 10px; padding: 18px 20px; margin-bottom: 20px;
+  }
+  .id-card h2 { margin: 0 0 4px 0; font-size: 15px; color: #16324f; }
+  .id-card p.hint { margin: 0 0 14px 0; font-size: 12.5px; color: #5b7692; }
+  .id-card-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .id-card-row .f { display: flex; flex-direction: column; gap: 4px; }
+  .id-card-row label { font-size: 11.5px; font-weight: 700; color: #375a78; }
+  .id-card-row input { border: 1px solid #bcd4e8; border-radius: 6px; padding: 8px 10px; font-size: 14px; min-width: 140px; background: #fff; }
+  .id-card-row input:focus { outline: none; border-color: #16324f; }
+  .id-card-row button {
+    border: none; background: #16324f; color: #fff; border-radius: 6px;
+    padding: 10px 22px; font-weight: 700; font-size: 14px; cursor: pointer; height: 38px;
+  }
+  .id-card-row button:hover { background: #1e4a73; }
+  .id-card-row button:disabled { opacity: .6; cursor: default; }
+  .id-error { margin-top: 10px; color: #8a2f2f; font-size: 13px; font-weight: 600; }
+
+  .id-logged-bar {
+    display: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    background: #ddefd0; border: 1px solid #b9dba0; border-radius: 10px;
+    padding: 10px 16px; margin-bottom: 20px; font-size: 13.5px; color: #2f6b2f; font-weight: 600;
+  }
+  .id-logged-bar button {
+    border: 1px solid #2f6b2f; background: #fff; color: #2f6b2f; border-radius: 6px;
+    padding: 6px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .id-logged-bar button:hover { background: #eaf6e2; }
+
+  .top-info { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .top-info .fields { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
+  .top-info label { font-weight: 600; color: #475569; margin-right: 4px; font-size: 14px; }
+  .top-info select, .top-info input {
+    border: none; border-bottom: 1.5px solid #c7cfd9; font-size: 14px; padding: 3px 4px;
+    color: #16324f; background: transparent;
+  }
+  .top-info select:focus, .top-info input:focus { outline: none; border-bottom-color: #16324f; }
+
+  table.main { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  table.main th, table.main td { border: 1px solid #dfe4ea; text-align: center; padding: 3px; font-size: 13px; }
+  table.main th { background: #eef2f7; color: #16324f; font-weight: 600; padding: 6px 3px; }
+  col.datum { width: 45px; }
+  col.time  { width: 7%; }
+  col.abs   { width: 11%; }
+  col.pozn  { width: auto; }
+
+  th.col-dovolena, td.col-dovolena { background: #dceafb; }
+  th.col-nv,       td.col-nv       { background: #ddefd0; }
+  th.col-prescas,  td.col-prescas  { background: #fbe3c6; }
+  th.col-lekar,    td.col-lekar    { background: #f6d3d3; }
+  td.col-dovolena, td.col-nv, td.col-prescas, td.col-lekar { color: #1f2937; }
+
+  table.main input {
+    width: 100%; border: none; text-align: center; font-size: 13px; background: transparent; color: #1f2937;
+  }
+  table.main input:focus { background: #fff6cf; outline: none; }
+  table.main input:disabled { background: #f3f4f6; color: #9ca3af; }
+
+  td.hodsmena { font-weight: 600; background:#f7f9fb; color:#16324f; }
+  td.prescas-cell { font-weight: 600; color: #7a3b12; }
+
+  tr.weekend td:nth-child(1), tr.weekend td:nth-child(2), tr.weekend td:nth-child(3),
+  tr.weekend td:nth-child(4), tr.weekend td:nth-child(9) { background: #fdecc8; }
+  tr.holiday td:nth-child(1), tr.holiday td:nth-child(2), tr.holiday td:nth-child(3),
+  tr.holiday td:nth-child(4), tr.holiday td:nth-child(9) { background: #f9d0d0; }
+  tr.vacation-approved td { background: #bdeecb !important; }
+  tr.vacation-approved td.datum-cell { font-weight: 700; color: #1f6b3a; }
+
+  .legend { display: flex; gap: 22px; align-items: center; font-size: 12.5px; color: #475569; margin: 10px 0 6px 0; flex-wrap: wrap; }
+  .legend span.swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #c7cfd9; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+  .swatch.weekend { background: #fdecc8; }
+  .swatch.holiday { background: #f9d0d0; }
+  .swatch.vacation { background: #bdeecb; }
+
+  tr.uzaverka-row td { font-weight: 600; background: #f4f6f9; color: #16324f; }
+  tr.uzaverka-label td { font-weight: 600; background: #eef2f7; color: #475569; font-size: 11.5px; }
+
+  .footer-note { margin-top: 18px; color: #9a3939; font-weight: 600; font-size: 15px; }
+
+  .controls { text-align: center; margin: 22px 0; }
+  .controls button {
+    font-size: 14px; font-weight: 600; padding: 9px 20px; margin: 0 6px; cursor: pointer;
+    border: 1px solid #16324f; background: #16324f; color: #fff; border-radius: 6px;
+    transition: background .15s, transform .05s;
+  }
+  .controls button:hover { background: #1e4266; }
+  .controls button:active { transform: translateY(1px); }
+  .controls button.secondary { background: #fff; color: #16324f; }
+  .controls button.secondary:hover { background: #f2f5f9; }
+
+  .balance-box { display: flex; gap: 16px; margin-top: 18px; flex-wrap: wrap; }
+  .balance-item {
+    flex: 1; min-width: 220px; background: #f7f9fb; border: 1px solid #e5e9ef; border-radius: 10px;
+    padding: 12px 16px; border-left: 4px solid #6fa8dc;
+  }
+  .balance-item:last-child { border-left-color: #e07a7a; }
+  .balance-label { font-size: 11.5px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; }
+  .balance-value { font-size: 14px; font-weight: 700; color: #16324f; }
+
+  .vacation-planner { margin-top: 24px; background: #f7f9fb; border: 1px solid #e5e9ef; border-radius: 10px; padding: 16px 18px; }
+  .vac-form { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+  .vac-form .f { display: flex; flex-direction: column; gap: 4px; }
+  .vac-form label { font-size: 11.5px; font-weight: 700; color: #64748b; }
+  .vac-form input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 9px; font-size: 13.5px; }
+  .vac-form button { border: none; background: #16324f; color: #fff; border-radius: 6px; padding: 9px 16px; font-weight: 600; font-size: 13px; cursor: pointer; height: 34px; }
+  .vac-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #e5e9ef; font-size: 13px; }
+  .vac-cancel-btn { margin-left: auto; border: 1px solid #cbd5e1; background: #fff; border-radius: 5px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
+  .vac-refresh-btn { border: 1px solid #cbd5e1; background: #fff; color: #16324f; border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-bottom: 10px; }
+
+  .vac-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 600; }
+  .vac-pending   { background: #fdecc8; color: #8a5a12; }
+  .vac-approved  { background: #ddefd0; color: #2f6b2f; }
+  .vac-rejected  { background: #f6d3d3; color: #8a2f2f; }
+  .vac-cancelled { background: #e5e9ef; color: #64748b; }
+
+  #manageSheet { padding: 0; overflow: hidden; }
+  .mgmt-header { background: linear-gradient(135deg, #16324f 0%, #1e4a73 60%, #2a6191 100%); color: #fff; padding: 28px 32px 22px 32px; }
+  .mgmt-header h1 { color: #fff; text-align: left; margin: 0; font-size: 22px; }
+  .mgmt-header p { margin: 6px 0 0 0; color: #cfe0f0; font-size: 13px; }
+  .mgmt-body { padding: 24px 28px 30px 28px; }
+
+  .mgmt-filters {
+    display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
+    background: #f7f9fb; border: 1px solid #e5e9ef; border-radius: 10px; padding: 14px 16px; margin-bottom: 22px;
+  }
+  .mgmt-filters div.f { display: flex; flex-direction: column; gap: 4px; }
+  .mgmt-filters label { font-size: 11.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .3px; }
+  .mgmt-filters select, .mgmt-filters input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 9px; font-size: 13.5px; min-width: 130px; }
+  .mgmt-filters button { border: none; background: #16324f; color: #fff; border-radius: 6px; padding: 9px 18px; font-weight: 600; font-size: 13.5px; cursor: pointer; height: 34px; }
+  .mgmt-filters button:hover { background: #1e4a73; }
+  .mgmt-note { font-size: 12px; color: #94a3b8; margin: -14px 0 20px 2px; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
+  .kpi-card { background: #fff; border: 1px solid #e5e9ef; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(15,23,42,.04); border-left: 4px solid #16324f; }
+  .kpi-card.kpi-overtime { border-left-color: #f2994a; }
+  .kpi-card.kpi-sick { border-left-color: #e07a7a; }
+  .kpi-card.kpi-avg { border-left-color: #4f9a8f; }
+  .kpi-value { font-size: 25px; font-weight: 700; color: #16324f; line-height: 1.1; }
+  .kpi-label { font-size: 11.5px; color: #64748b; margin-top: 5px; text-transform: uppercase; letter-spacing: .3px; }
+
+  .mgmt-grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; margin-bottom: 26px; }
+  .mgmt-grid-2b { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 26px; }
+  .chart-box { background: #fff; border: 1px solid #e5e9ef; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .chart-box canvas { max-height: 280px; }
+
+  .emp-table-wrap { overflow-x: auto; }
+  table.emp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.emp-table th, table.emp-table td { padding: 8px 10px; border-bottom: 1px solid #edf0f4; text-align: left; }
+  table.emp-table th { background: #f7f9fb; color: #16324f; cursor: pointer; user-select: none; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  table.emp-table th:hover { background: #eef2f7; }
+  table.emp-table td.num, table.emp-table th.num { text-align: right; }
+  table.emp-table tr:nth-child(even) td { background: #fbfcfd; }
+  table.emp-table tr:hover td { background: #fff6cf; }
+
+  .vac-admin-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #edf0f4; flex-wrap: wrap; gap: 8px; }
+  .vac-admin-main { display: flex; gap: 14px; align-items: center; font-size: 13.5px; }
+  .vac-admin-actions { display: flex; gap: 8px; }
+  .vac-approve-btn { border: none; background: #2f6b2f; color: #fff; border-radius: 5px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .vac-reject-btn { border: none; background: #8a2f2f; color: #fff; border-radius: 5px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .vac-revoke-btn { border: none; background: #a0522d; color: #fff; border-radius: 5px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+
+  .pw-admin-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid #edf0f4; font-size: 13.5px; flex-wrap: wrap; gap: 8px; }
+  .pw-admin-actions { display: flex; gap: 8px; }
+  .pw-admin-actions button { border: 1px solid #cbd5e1; background: #fff; color: #16324f; border-radius: 5px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+  .pw-status { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; }
+  .pw-set { background: #ddefd0; color: #2f6b2f; }
+  .pw-unset { background: #e5e9ef; color: #64748b; }
+
+  @media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    body { background: #fff; padding: 0; }
+    .sheet { border: none; padding: 0; }
+    .no-print { display: none !important; }
+    .uzaverka-row, .uzaverka-label, .uzaverka-title { display: none !important; }
+    table.main input { border: none; }
+    table.main input::placeholder { color: transparent !important; }
+    #printWrap { overflow: hidden; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar no-print">
+  <button onclick="toggleManage()" id="btnToggleManage">Správa pro vedoucí</button>
+</div>
+
+<div id="printWrap">
+<div class="sheet" id="mainSheet">
+  <h1>Kontrolní list docházky</h1>
+
+  <div class="id-card no-print" id="idCard">
+    <h2>Vstup do docházky</h2>
+    <p class="hint">Zadej firemní ID. Jsi-li tu poprvé, vyplň i jméno a volitelně heslo. Pak klikni na Vstoupit (nebo stiskni Enter).</p>
+    <div class="id-card-row">
+      <div class="f"><label>Firemní ID</label><input type="text" id="firemniId" placeholder="např. 12345"></div>
+      <div class="f"><label>Jméno (jen napoprvé)</label><input type="text" id="jmeno" placeholder="celé jméno"></div>
+      <div class="f"><label>Heslo (nepovinné)</label><input type="password" id="heslo" placeholder="nepovinné"></div>
+      <button id="btnEnter" onclick="handleEnter()">Vstoupit</button>
+    </div>
+    <div class="id-error" id="idErrorNote"></div>
+  </div>
+
+  <div class="id-logged-bar no-print" id="idLoggedBar">
+    <span>Přihlášen: <span id="loggedWhoText"></span></span>
+    <button onclick="switchUser()">Přepnout uživatele</button>
+  </div>
+
+  <div class="top-info">
+    <div class="fields">
+      <div><label>Směna:</label>
+        <select id="smena">
+          <option value="">—</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+        </select>
+      </div>
+      <div><label>Měsíc:</label>
+        <select id="mesic">
+          <option value="1">Leden</option><option value="2">Únor</option><option value="3">Březen</option>
+          <option value="4">Duben</option><option value="5">Květen</option><option value="6">Červen</option>
+          <option value="7">Červenec</option><option value="8">Srpen</option><option value="9" selected>Září</option>
+          <option value="10">Říjen</option><option value="11">Listopad</option><option value="12">Prosinec</option>
+        </select>
+      </div>
+      <div><label>Rok:</label><input type="number" id="rok" size="6" value="2026"></div>
+    </div>
+  </div>
+
+  <div class="legend no-print">
+    <div><span class="swatch weekend"></span>Víkend</div>
+    <div><span class="swatch holiday"></span>Státní svátek (odpracované hodiny jdou do přesčasu)</div>
+    <div><span class="swatch vacation"></span>Schválená dovolená</div>
+    <div>Přesčas se počítá automaticky z Příchodu/Odchodu. Dovolená/NV/Lékař se píší ručně v hodinách.</div>
+  </div>
+
+  <table class="main" id="dochazkaTable">
+    <colgroup>
+      <col class="datum">
+      <col class="time"><col class="time"><col class="time">
+      <col class="abs"><col class="abs"><col class="time"><col class="abs">
+      <col class="pozn">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Datum</th><th>Příchod</th><th>Odchod</th><th>Hod/<br>Směna</th>
+        <th class="col-dovolena">Dovolená</th><th class="col-nv">NV</th>
+        <th class="col-prescas">Přesčas</th><th class="col-lekar">Lékař/<br>nemoc</th><th>Poznámka</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+    <tfoot>
+      <tr class="uzaverka-label">
+        <td colspan="3">Uzávěrka</td><td>Hod.<br>Celkem</td>
+        <td class="col-dovolena">Hod.<br>Celkem</td><td class="col-nv">Hod.<br>Celkem</td>
+        <td class="col-prescas">Hod.<br>Celkem</td><td class="col-lekar">Hod.<br>Celkem</td><td></td>
+      </tr>
+      <tr class="uzaverka-row">
+        <td colspan="3"></td><td id="sumSmena">0.0</td>
+        <td class="col-dovolena" id="sumDovolena">0.0</td><td class="col-nv" id="sumNv">0.0</td>
+        <td class="col-prescas" id="sumPrescas">0.0</td><td class="col-lekar" id="sumLekar">0.0</td><td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="footer-note">Nárok na extra bonus na stravování :</div>
+
+  <div class="balance-box no-print" id="vacBalanceBox">
+    <div class="balance-item">
+      <div class="balance-label">Dovolená (25 dní / 187,5 h ročně)</div>
+      <div class="balance-value" id="vacBalanceText">—</div>
+    </div>
+    <div class="balance-item">
+      <div class="balance-label">Lékař / nemoc celkem za rok</div>
+      <div class="balance-value" id="sickBalanceText">—</div>
+    </div>
+  </div>
+
+  <div class="vacation-planner no-print">
+    <h2 class="section-title">Plánování dovolené</h2>
+    <div class="vac-form">
+      <div class="f"><label>Od</label><input type="date" id="vacFrom"></div>
+      <div class="f"><label>Do</label><input type="date" id="vacTo"></div>
+      <button onclick="submitVacationRequest()">Požádat o dovolenou</button>
+    </div>
+    <button class="vac-refresh-btn" onclick="manualRefreshVacations()">Aktualizovat stav žádostí</button>
+    <div id="vacMyList"></div>
+  </div>
+</div>
+
+<div class="sheet" id="manageSheet" style="display:none;">
+  <div class="mgmt-header">
+    <h1>Správa pro vedoucí</h1>
+    <p>Přehled docházky, přesčasů, nemocnosti a žádostí o dovolenou celého týmu</p>
+  </div>
+  <div class="mgmt-body">
+
+    <div class="mgmt-filters no-print">
+      <div class="f"><label>Rok</label><input type="number" id="mgmtRok" value="2026"></div>
+      <div class="f"><label>Směna</label>
+        <select id="mgmtShift">
+          <option value="ALL">Všechny směny</option>
+          <option value="B">Směna B</option>
+          <option value="C">Směna C</option>
+          <option value="D">Směna D</option>
+        </select>
+      </div>
+      <div class="f"><label>Zaměstnanec</label>
+        <select id="mgmtEmployee"><option value="ALL">Všichni zaměstnanci</option></select>
+      </div>
+      <div class="f"><button onclick="buildManagementCharts()">Aktualizovat</button></div>
+    </div>
+    <div class="mgmt-note" id="mgmtStatus">Vyber rok / směnu / zaměstnance a klikni na Aktualizovat.</div>
+
+    <h2 class="section-title">Žádosti o dovolenou</h2>
+    <div class="chart-box" style="margin-bottom:26px;">
+      <div id="vacAdminList">Načítám…</div>
+    </div>
+
+    <h2 class="section-title">Hesla zaměstnanců</h2>
+    <div class="mgmt-note no-print">Hesla se nikam neukládají čitelně (jen otisk) - nové heslo vždy sděl zaměstnanci osobně.</div>
+    <div class="chart-box" style="margin-bottom:26px;">
+      <div id="pwAdminList">Načítám…</div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-value" id="kpiEmployees">0</div><div class="kpi-label">Zaměstnanců v pohledu</div></div>
+      <div class="kpi-card kpi-overtime"><div class="kpi-value" id="kpiOvertime">0.0 h</div><div class="kpi-label">Přesčas celkem za rok</div></div>
+      <div class="kpi-card kpi-sick"><div class="kpi-value" id="kpiSick">0.0 h</div><div class="kpi-label">Lékař/nemoc celkem za rok</div></div>
+      <div class="kpi-card kpi-avg"><div class="kpi-value" id="kpiAvg">0.0 h</div><div class="kpi-label">Průměrný přesčas / zaměstnanec</div></div>
+    </div>
+
+    <div class="mgmt-grid-2">
+      <div class="chart-box">
+        <h2 class="section-title">Trend za rok - přesčas a nemocnost podle měsíce</h2>
+        <canvas id="chartTrend"></canvas>
+      </div>
+      <div class="chart-box">
+        <h2 class="section-title">Rozložení hodin (vybraný pohled)</h2>
+        <canvas id="chartBreakdown"></canvas>
+      </div>
+    </div>
+
+    <div class="mgmt-grid-2b">
+      <div class="chart-box">
+        <h2 class="section-title">Žebříček - nejvíc přesčasů za rok</h2>
+        <canvas id="chartRankOvertime"></canvas>
+      </div>
+      <div class="chart-box">
+        <h2 class="section-title">Žebříček - nejvíc lékař/nemoc za rok</h2>
+        <canvas id="chartRankSick"></canvas>
+      </div>
+    </div>
+
+    <h2 class="section-title">Přehled zaměstnanců za vybraný rok</h2>
+    <div class="mgmt-note no-print">Klikni na záhlaví sloupce pro seřazení.</div>
+    <div class="emp-table-wrap chart-box" style="margin-bottom:10px;">
+      <table class="emp-table" id="empTable">
+        <thead>
+          <tr>
+            <th data-col="jmeno">Jméno</th>
+            <th data-col="smena">Směna</th>
+            <th class="num" data-col="worked">Odpracováno</th>
+            <th class="num" data-col="overtime">Přesčas</th>
+            <th class="num" data-col="dov">Dovolená</th>
+            <th class="num" data-col="dovZbyva">Zbývá dovolené</th>
+            <th class="num" data-col="nv">NV</th>
+            <th class="num" data-col="lek">Lékař/nemoc</th>
+          </tr>
+        </thead>
+        <tbody id="empTableBody"><tr><td colspan="8">Klikni na Aktualizovat.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="no-print" style="margin-bottom:10px;">
+      <button onclick="exportEmployeeCSV()" style="border:1px solid #16324f;background:#fff;color:#16324f;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;font-size:13px;">Export do CSV</button>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<div class="controls no-print" id="mainControls">
+  <button onclick="preparePrint()">Tisk</button>
+  <button class="secondary" onclick="resetTable()">Vymazat vše</button>
+  <span id="saveStatus" style="font-size:12px;color:#666;margin-left:10px;"></span>
+</div>
+
+<script>
+const DAYS = 31;
+const tbody = document.getElementById('tbody');
+
+function timeToHours(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h + m / 60;
+}
+function fmtHours(x) { return x > 0.001 ? x.toFixed(1) : ''; }
+
+function slugify(name) {
+  const s = (name || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s || 'zamestnanec';
+}
+function dateStr(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function hasCrypto() { return !!(window.crypto && window.crypto.subtle); }
+
+function buildRow(day) {
+  const tr = document.createElement('tr');
+  tr.dataset.day = day;
+  tr.dataset.holiday = '0';
+  tr.innerHTML = `
+    <td class="datum-cell">${day}.</td>
+    <td><input type="time" class="prichod"></td>
+    <td><input type="time" class="odchod"></td>
+    <td class="hodsmena">0.0</td>
+    <td class="col-dovolena"><input type="number" step="0.1" min="0" class="dov-hod" placeholder="hod."></td>
+    <td class="col-nv"><input type="number" step="0.1" min="0" class="nv-hod" placeholder="hod."></td>
+    <td class="col-prescas prescas-cell">0.0</td>
+    <td class="col-lekar"><input type="number" step="0.1" min="0" class="lek-hod" placeholder="hod."></td>
+    <td><input type="text" class="poznamka"></td>
+  `;
+  return tr;
+}
+for (let d = 1; d <= DAYS; d++) tbody.appendChild(buildRow(d));
+
+function getEasterSunday(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+function getCzechHolidays(year) {
+  const easter = getEasterSunday(year);
+  const goodFriday = new Date(easter); goodFriday.setDate(easter.getDate() - 2);
+  const easterMonday = new Date(easter); easterMonday.setDate(easter.getDate() + 1);
+  const fixed = [[1,1],[5,1],[5,8],[7,5],[7,6],[9,28],[10,28],[11,17],[12,24],[12,25],[12,26]];
+  const holidays = fixed.map(([m, d]) => new Date(year, m - 1, d));
+  holidays.push(goodFriday, easterMonday);
+  return holidays;
+}
+function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); }
+
+const dayNames = ['Ne','Po','Út','St','Čt','Pá','So'];
+const monthNames = ['Led','Úno','Bře','Dub','Kvě','Čvn','Čvc','Srp','Zář','Říj','Lis','Pro'];
+
+const SHIFT_LENGTH = 7.5;
+const BREAK_EVERY = 6;
+const BREAK_DURATION = 0.5;
+const VACATION_DAYS_PER_YEAR = 25;
+const VACATION_HOURS_PER_DAY = 7.5;
+const VACATION_ALLOWANCE = VACATION_DAYS_PER_YEAR * VACATION_HOURS_PER_DAY; // 187.5 h
+
+let approvedVacationDays = new Set();
+
+function rebuildCalendar() {
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+
+  tbody.querySelectorAll('tr').forEach((tr, idx) => {
+    const day = idx + 1;
+    tr.classList.remove('weekend', 'holiday', 'vacation-approved');
+    if (day > numDays) { tr.style.display = 'none'; tr.dataset.holiday = '0'; return; }
+    tr.style.display = '';
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isHoliday = holidays.some(h => h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day);
+    if (dow === 0 || dow === 6) tr.classList.add('weekend');
+    if (isHoliday) tr.classList.add('holiday');
+    if (approvedVacationDays.has(dateStr(year, month, day))) tr.classList.add('vacation-approved');
+    tr.dataset.holiday = isHoliday ? '1' : '0';
+    tr.dataset.weekend = (dow === 0 || dow === 6) ? '1' : '0';
+    tr.querySelector('.datum-cell').textContent = day + '. (' + dayNames[dow] + ')';
+  });
+  recalc();
+}
+
+function computeDay(prichod, odchod, isHoliday, isWeekend) {
+  let worked = 0;
+  if (prichod && odchod) {
+    let h1 = timeToHours(prichod), h2 = timeToHours(odchod);
+    let rawSpan = h2 - h1;
+    if (rawSpan < 0) rawSpan += 24;
+    const breaks = Math.floor(rawSpan / BREAK_EVERY) * BREAK_DURATION;
+    worked = Math.max(rawSpan - breaks, 0);
+  }
+  const overtime = (isHoliday || isWeekend) ? worked : Math.max(worked - SHIFT_LENGTH, 0);
+  return { worked, overtime };
+}
+
+function recalc() {
+  let totalSmena = 0, totalDov = 0, totalNv = 0, totalPre = 0, totalLek = 0;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+    const prichod = tr.querySelector('.prichod').value;
+    const odchod = tr.querySelector('.odchod').value;
+    const smenaCell = tr.querySelector('.hodsmena');
+    const prescasCell = tr.querySelector('.prescas-cell');
+    const dovHours = parseFloat(tr.querySelector('.dov-hod').value) || 0;
+    const nvHours = parseFloat(tr.querySelector('.nv-hod').value) || 0;
+    const lekHours = parseFloat(tr.querySelector('.lek-hod').value) || 0;
+    const isHoliday = tr.dataset.holiday === '1';
+    const isWeekend = tr.dataset.weekend === '1';
+    const { worked, overtime } = computeDay(prichod, odchod, isHoliday, isWeekend);
+    smenaCell.textContent = fmtHours(worked);
+    prescasCell.textContent = fmtHours(overtime);
+    totalSmena += worked; totalPre += overtime; totalDov += dovHours; totalNv += nvHours; totalLek += lekHours;
+  });
+  document.getElementById('sumSmena').textContent = totalSmena.toFixed(1);
+  document.getElementById('sumDovolena').textContent = totalDov.toFixed(1);
+  document.getElementById('sumNv').textContent = totalNv.toFixed(1);
+  document.getElementById('sumPrescas').textContent = totalPre.toFixed(1);
+  document.getElementById('sumLekar').textContent = totalLek.toFixed(1);
+}
+
+tbody.addEventListener('input', () => { recalc(); scheduleSave(); });
+document.getElementById('mesic').addEventListener('change', switchMonth);
+document.getElementById('rok').addEventListener('change', switchMonth);
+document.getElementById('smena').addEventListener('change', handleShiftChange);
+['firemniId', 'jmeno', 'heslo'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); handleEnter(); } });
+});
+
+let currentSlug = null;
+let currentKey = null;
+let saveTimer = null;
+const saveStatus = document.getElementById('saveStatus');
+
+function clearAllRowInputs() {
+  tbody.querySelectorAll('input[type="text"], input[type="time"], input[type="number"]').forEach(i => { i.value = ''; });
+}
+
+function setInputsEnabled(enabled) {
+  tbody.querySelectorAll('input').forEach(i => { i.disabled = !enabled; });
+  const vacFrom = document.getElementById('vacFrom'), vacTo = document.getElementById('vacTo');
+  if (vacFrom) vacFrom.disabled = !enabled;
+  if (vacTo) vacTo.disabled = !enabled;
+  document.querySelectorAll('.vac-form button').forEach(b => b.disabled = !enabled);
+}
+setInputsEnabled(false);
+
+function showIdError(msg) {
+  const el = document.getElementById('idErrorNote');
+  el.textContent = msg || '';
+}
+
+function showLoggedInBar(jmeno, id) {
+  document.getElementById('idCard').style.display = 'none';
+  const bar = document.getElementById('idLoggedBar');
+  bar.style.display = 'flex';
+  document.getElementById('loggedWhoText').textContent = jmeno + ' (ID: ' + id + ')';
+}
+
+async function handleEnter() {
+  const idVal = document.getElementById('firemniId').value.trim();
+  if (!idVal) { showIdError('Vyplň firemní ID.'); return; }
+  showIdError('');
+
+  const btn = document.getElementById('btnEnter');
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Ověřuji…';
+
+  try {
+    const newSlug = slugify(idVal);
+    const heslo = document.getElementById('heslo').value;
+    let existing;
+    try {
+      existing = await window.dbGetEmployee(newSlug);
+    } catch (err) {
+      showIdError('Nepodařilo se spojit s Firebase (' + (err.code || err.message) + '). Zkontroluj Firestore databázi/pravidla/připojení.');
+      return;
+    }
+
+    let jmenoFinal;
+
+    if (existing) {
+      if (existing.pinHash) {
+        if (!hasCrypto()) {
+          showIdError('Ověření hesla vyžaduje HTTPS. Otevři appku přes nasazenou adresu (ne lokální soubor).');
+          return;
+        }
+        if (!heslo) { showIdError('Tento účet má nastavené heslo - vyplň ho.'); return; }
+        const hash = await sha256Hex(heslo);
+        if (hash !== existing.pinHash) {
+          showIdError('Nesprávné heslo pro toto ID.');
+          document.getElementById('heslo').value = '';
+          return;
+        }
+      }
+      jmenoFinal = existing.jmeno || idVal;
+    } else {
+      const jmenoVal = document.getElementById('jmeno').value.trim();
+      if (!jmenoVal) {
+        showIdError('Tohle ID ještě neznáme - jsi tu poprvé, vyplň prosím i jméno.');
+        return;
+      }
+      let pinHash = null;
+      if (heslo) {
+        if (!hasCrypto()) {
+          showIdError('Heslo nejde nastavit bez HTTPS. Buď appku otevři přes nasazenou adresu, nebo pole hesla nech prázdné.');
+          return;
+        }
+        pinHash = await sha256Hex(heslo);
+      }
+      const res = await window.dbUpsertEmployee(newSlug, { jmeno: jmenoVal, id: idVal, pinHash });
+      if (!res.ok) {
+        showIdError('Nepodařilo se založit záznam' + (res.error ? ' (' + res.error + ')' : '') + '. Zkontroluj Firestore pravidla/připojení.');
+        return;
+      }
+      jmenoFinal = jmenoVal;
+    }
+
+    currentSlug = newSlug;
+    document.getElementById('heslo').value = '';
+    document.getElementById('jmeno').value = jmenoFinal;
+    showLoggedInBar(jmenoFinal, idVal);
+
+    clearAllRowInputs();
+    setInputsEnabled(true);
+    recalc();
+    await loadCurrentMonth();
+    await refreshApprovedVacations();
+    await loadMyVacationRequestsUI();
+    await refreshYearlyStats();
+    rebuildCalendar();
+  } catch (err) {
+    console.error(err);
+    showIdError('Nastala neočekávaná chyba: ' + (err.message || err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function switchUser() {
+  currentSlug = null;
+  currentKey = (parseInt(document.getElementById('rok').value) || 2026) + '-' + (parseInt(document.getElementById('mesic').value) || 1);
+  setInputsEnabled(false);
+  clearAllRowInputs();
+  document.getElementById('firemniId').value = '';
+  document.getElementById('jmeno').value = '';
+  document.getElementById('heslo').value = '';
+  document.getElementById('smena').value = '';
+  document.getElementById('idLoggedBar').style.display = 'none';
+  document.getElementById('idCard').style.display = '';
+  showIdError('');
+  document.getElementById('vacBalanceText').textContent = '—';
+  document.getElementById('sickBalanceText').textContent = '—';
+  document.getElementById('vacMyList').innerHTML = '';
+  approvedVacationDays = new Set();
+  if (saveStatus) saveStatus.textContent = '';
+  rebuildCalendar();
+  document.getElementById('firemniId').focus();
+}
+
+function handleShiftChange() {
+  if (!currentSlug) return;
+  const smena = document.getElementById('smena').value;
+  window.dbUpsertEmployee(currentSlug, { smena });
+}
+
+async function saveCurrentMonth() {
+  if (!currentKey || !currentSlug) return;
+  const rows = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    rows.push({
+      day: tr.dataset.day,
+      prichod: tr.querySelector('.prichod').value,
+      odchod: tr.querySelector('.odchod').value,
+      dovHod: tr.querySelector('.dov-hod').value,
+      nvHod: tr.querySelector('.nv-hod').value,
+      lekHod: tr.querySelector('.lek-hod').value,
+      poznamka: tr.querySelector('.poznamka').value
+    });
+  });
+  const data = { rows, updatedAt: new Date().toISOString() };
+  const res = window.dbSaveMonth ? await window.dbSaveMonth(currentSlug, currentKey, data) : { ok: false };
+  if (saveStatus) {
+    saveStatus.textContent = res.ok
+      ? 'Uloženo ' + new Date().toLocaleTimeString('cs-CZ')
+      : 'Uložení se NEZDAŘILO' + (res.error ? ' (' + res.error + ')' : '') + ' - zkontroluj Firestore pravidla / připojení';
+    saveStatus.style.color = res.ok ? '#666' : '#b91c1c';
+    saveStatus.style.fontWeight = res.ok ? 'normal' : '700';
+  }
+  if (res.ok) refreshYearlyStats();
+}
+
+function scheduleSave() {
+  if (!currentSlug) { if (saveStatus) saveStatus.textContent = 'Nejdřív se identifikuj firemním ID nahoře'; return; }
+  clearTimeout(saveTimer);
+  if (saveStatus) { saveStatus.textContent = 'Ukládám…'; saveStatus.style.color = '#666'; saveStatus.style.fontWeight = 'normal'; }
+  saveTimer = setTimeout(saveCurrentMonth, 600);
+}
+
+async function loadCurrentMonth() {
+  if (!currentKey || !currentSlug) return;
+  const data = window.dbLoadMonth ? await window.dbLoadMonth(currentSlug, currentKey) : null;
+  if (data) {
+    (data.rows || []).forEach(r => {
+      const tr = tbody.querySelector('tr[data-day="' + r.day + '"]');
+      if (!tr) return;
+      tr.querySelector('.prichod').value = r.prichod || '';
+      tr.querySelector('.odchod').value = r.odchod || '';
+      tr.querySelector('.dov-hod').value = r.dovHod || '';
+      tr.querySelector('.nv-hod').value = r.nvHod || '';
+      tr.querySelector('.lek-hod').value = r.lekHod || '';
+      tr.querySelector('.poznamka').value = r.poznamka || '';
+    });
+    if (saveStatus) saveStatus.textContent = 'Načteno z Firebase';
+  } else {
+    if (saveStatus) saveStatus.textContent = 'Nový záznam pro tento měsíc';
+  }
+  recalc();
+}
+
+async function switchMonth() {
+  if (currentSlug) await saveCurrentMonth();
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  currentKey = year + '-' + month;
+  clearAllRowInputs();
+  rebuildCalendar();
+  if (currentSlug) { await loadCurrentMonth(); await refreshYearlyStats(); }
+  else if (saveStatus) { saveStatus.textContent = 'Nejdřív se identifikuj firemním ID nahoře'; }
+}
+
+function initApp() {
+  rebuildCalendar();
+  currentKey = (parseInt(document.getElementById('rok').value) || 2026) + '-' + (parseInt(document.getElementById('mesic').value) || 1);
+  document.getElementById('firemniId').focus();
+}
+document.addEventListener('DOMContentLoaded', initApp);
+if (document.readyState !== 'loading') initApp();
+
+function resetTable() {
+  if (!currentSlug) return;
+  if (!confirm('Opravdu vymazat všechny zadané hodnoty pro tento měsíc?')) return;
+  clearAllRowInputs();
+  recalc();
+  if (currentKey && window.dbDeleteMonth) window.dbDeleteMonth(currentSlug, currentKey).catch(() => {});
+  if (saveStatus) saveStatus.textContent = 'Vymazáno';
+}
+
+function computeMonthTotals(year, month, data) {
+  const rowsByDay = {};
+  (data && data.rows || []).forEach(r => { rowsByDay[r.day] = r; });
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+  let totalSmena = 0, totalPre = 0, totalDov = 0, totalNv = 0, totalLek = 0;
+  for (let day = 1; day <= numDays; day++) {
+    const r = rowsByDay[day] || {};
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isWeekend = (dow === 0 || dow === 6);
+    const isHoliday = holidays.some(h => h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day);
+    const { worked, overtime } = computeDay(r.prichod, r.odchod, isHoliday, isWeekend);
+    totalSmena += worked; totalPre += overtime;
+    totalDov += parseFloat(r.dovHod) || 0;
+    totalNv += parseFloat(r.nvHod) || 0;
+    totalLek += parseFloat(r.lekHod) || 0;
+  }
+  return { totalSmena, totalPre, totalDov, totalNv, totalLek };
+}
+
+async function refreshYearlyStats() {
+  if (!currentSlug) return;
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const currentMonth = parseInt(document.getElementById('mesic').value) || 1;
+  let usedDov = 0, usedLek = 0;
+  for (let m = 1; m <= 12; m++) {
+    if (m === currentMonth) {
+      tbody.querySelectorAll('.dov-hod').forEach(inp => { usedDov += parseFloat(inp.value) || 0; });
+      tbody.querySelectorAll('.lek-hod').forEach(inp => { usedLek += parseFloat(inp.value) || 0; });
+    } else {
+      const data = await window.dbLoadMonth(currentSlug, year + '-' + m);
+      (data && data.rows || []).forEach(r => {
+        usedDov += parseFloat(r.dovHod) || 0;
+        usedLek += parseFloat(r.lekHod) || 0;
+      });
+    }
+  }
+  const remaining = Math.max(VACATION_ALLOWANCE - usedDov, 0);
+  document.getElementById('vacBalanceText').textContent =
+    'Vyčerpáno ' + usedDov.toFixed(1) + ' h (' + (usedDov / VACATION_HOURS_PER_DAY).toFixed(1) + ' dní) · zbývá ' +
+    remaining.toFixed(1) + ' h (' + (remaining / VACATION_HOURS_PER_DAY).toFixed(1) + ' dní)';
+  document.getElementById('sickBalanceText').textContent = usedLek.toFixed(1) + ' h za rok ' + year;
+}
+
+function vacStatusLabel(status) {
+  return { pending: 'Čeká na schválení', approved: 'Schváleno', rejected: 'Zamítnuto', cancelled: 'Zrušeno' }[status] || status;
+}
+function vacStatusClass(status) {
+  return { pending: 'vac-pending', approved: 'vac-approved', rejected: 'vac-rejected', cancelled: 'vac-cancelled' }[status] || '';
+}
+
+function expandApprovedDays(requests) {
+  const set = new Set();
+  requests.filter(r => r.status === 'approved').forEach(r => {
+    if (!r.dateFrom || !r.dateTo) return;
+    let d = new Date(r.dateFrom + 'T00:00:00');
+    const end = new Date(r.dateTo + 'T00:00:00');
+    let guard = 0;
+    while (d <= end && guard < 800) {
+      set.add(dateStr(d.getFullYear(), d.getMonth() + 1, d.getDate()));
+      d.setDate(d.getDate() + 1);
+      guard++;
+    }
+  });
+  return set;
+}
+
+async function refreshApprovedVacations() {
+  if (!currentSlug) { approvedVacationDays = new Set(); return; }
+  const list = await window.dbListVacationRequests(currentSlug);
+  approvedVacationDays = expandApprovedDays(list);
+}
+
+function renderMyVacationList(list) {
+  const el = document.getElementById('vacMyList');
+  if (!list.length) { el.innerHTML = '<div class="mgmt-note">Zatím žádné žádosti o dovolenou.</div>'; return; }
+  const sorted = [...list].sort((a, b) => (a.dateFrom || '').localeCompare(b.dateFrom || ''));
+  el.innerHTML = sorted.map(r => (
+    '<div class="vac-item"><span>' + r.dateFrom + ' → ' + r.dateTo + '</span>' +
+    '<span class="vac-badge ' + vacStatusClass(r.status) + '">' + vacStatusLabel(r.status) + '</span>' +
+    (r.status === 'pending' ? '<button class="vac-cancel-btn" onclick="cancelVacationRequest(\'' + r.id + '\')">Zrušit</button>' : '') +
+    '</div>'
+  )).join('');
+}
+
+async function loadMyVacationRequestsUI() {
+  if (!currentSlug) return;
+  const list = await window.dbListVacationRequests(currentSlug);
+  renderMyVacationList(list);
+}
+
+async function submitVacationRequest() {
+  if (!currentSlug) { alert('Nejdřív se identifikuj firemním ID.'); return; }
+  const from = document.getElementById('vacFrom').value;
+  const to = document.getElementById('vacTo').value;
+  if (!from || !to) { alert('Vyplň obě data.'); return; }
+  if (to < from) { alert('Datum "Do" musí být stejné nebo pozdější než "Od".'); return; }
+  const jmeno = document.getElementById('jmeno').value.trim();
+  const res = await window.dbAddVacationRequest(currentSlug, jmeno, from, to);
+  if (res.ok) {
+    document.getElementById('vacFrom').value = '';
+    document.getElementById('vacTo').value = '';
+    await loadMyVacationRequestsUI();
+  } else {
+    alert('Nepodařilo se odeslat žádost' + (res.error ? ' (' + res.error + ')' : '') + '.');
+  }
+}
+
+async function cancelVacationRequest(id) {
+  if (!currentSlug) return;
+  await window.dbUpdateVacationRequest(currentSlug, id, { status: 'cancelled', decidedAt: new Date().toISOString() });
+  await loadMyVacationRequestsUI();
+  await refreshApprovedVacations();
+  rebuildCalendar();
+}
+
+async function manualRefreshVacations() {
+  await refreshApprovedVacations();
+  await loadMyVacationRequestsUI();
+  await refreshYearlyStats();
+  rebuildCalendar();
+}
+
+function getVisibleSheet() {
+  const sheets = document.querySelectorAll('.sheet');
+  for (const el of sheets) if (el.offsetParent !== null) return el;
+  return sheets[0] || null;
+}
+function fitPrintToPage() {
+  const sheet = getVisibleSheet();
+  const wrap = document.getElementById('printWrap');
+  if (!sheet || !wrap) return;
+  sheet.style.transform = 'none'; wrap.style.width = ''; wrap.style.height = '';
+  const naturalW = sheet.scrollWidth, naturalH = sheet.scrollHeight;
+  const pxPerMm = 96 / 25.4, pageWmm = 297, pageHmm = 210, marginMm = 8;
+  const availW = (pageWmm - marginMm * 2) * pxPerMm, availH = (pageHmm - marginMm * 2) * pxPerMm;
+  const scale = Math.min(1, availW / naturalW, availH / naturalH);
+  sheet.style.transformOrigin = 'top left';
+  sheet.style.transform = 'scale(' + scale + ')';
+  wrap.style.width = (naturalW * scale) + 'px';
+  wrap.style.height = (naturalH * scale) + 'px';
+}
+function resetPrintScale() {
+  const sheet = getVisibleSheet();
+  const wrap = document.getElementById('printWrap');
+  if (!sheet || !wrap) return;
+  sheet.style.transform = 'none'; wrap.style.width = ''; wrap.style.height = '';
+}
+function preparePrint() { fitPrintToPage(); setTimeout(() => window.print(), 50); }
+window.addEventListener('beforeprint', fitPrintToPage);
+window.addEventListener('afterprint', resetPrintScale);
+
+let manageVisible = false;
+let charts = {};
+let employeeTableData = [];
+let empSortCol = 'overtime';
+let empSortDir = 'desc';
+
+async function toggleManage() {
+  manageVisible = !manageVisible;
+  document.getElementById('mainSheet').style.display = manageVisible ? 'none' : '';
+  document.getElementById('manageSheet').style.display = manageVisible ? '' : 'none';
+  document.getElementById('mainControls').style.display = manageVisible ? 'none' : '';
+  document.getElementById('btnToggleManage').textContent = manageVisible ? 'Zpět na docházku' : 'Správa pro vedoucí';
+  if (manageVisible) {
+    document.getElementById('mgmtRok').value = document.getElementById('rok').value || 2026;
+    await populateMgmtEmployees();
+    await loadPendingVacations();
+    await renderPasswordManagement();
+  }
+}
+
+async function populateMgmtEmployees() {
+  const sel = document.getElementById('mgmtEmployee');
+  const employees = await window.dbListEmployees();
+  const current = sel.value || 'ALL';
+  sel.innerHTML = '<option value="ALL">Všichni zaměstnanci</option>';
+  employees.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.slug;
+    opt.textContent = e.jmeno || e.slug;
+    sel.appendChild(opt);
+  });
+  sel.value = current;
+}
+
+async function loadPendingVacations() {
+  const box = document.getElementById('vacAdminList');
+  box.innerHTML = 'Načítám žádosti…';
+  const employees = await window.dbListEmployees();
+  let allReqs = [];
+  for (const emp of employees) {
+    const reqs = await window.dbListVacationRequests(emp.slug);
+    reqs.forEach(r => allReqs.push({ ...r, slug: emp.slug, jmeno: r.jmeno || emp.jmeno || emp.slug }));
+  }
+  const rank = { pending: 0, approved: 1, rejected: 2, cancelled: 3 };
+  allReqs.sort((a, b) => {
+    const ra = rank[a.status] ?? 9, rb = rank[b.status] ?? 9;
+    if (ra !== rb) return ra - rb;
+    return (a.dateFrom || '').localeCompare(b.dateFrom || '');
+  });
+  if (!allReqs.length) { box.innerHTML = '<div class="mgmt-note">Žádné žádosti o dovolenou.</div>'; return; }
+  box.innerHTML = allReqs.map(r => {
+    let actions = '';
+    if (r.status === 'pending') {
+      actions = '<div class="vac-admin-actions"><button class="vac-approve-btn" onclick="decideVacation(\'' + r.slug + '\',\'' + r.id + '\',\'approved\')">Schválit</button>' +
+        '<button class="vac-reject-btn" onclick="decideVacation(\'' + r.slug + '\',\'' + r.id + '\',\'rejected\')">Zamítnout</button></div>';
+    } else if (r.status === 'approved') {
+      actions = '<div class="vac-admin-actions"><button class="vac-revoke-btn" onclick="decideVacation(\'' + r.slug + '\',\'' + r.id + '\',\'rejected\')">Zrušit dovolenou</button></div>';
+    }
+    return '<div class="vac-admin-item"><div class="vac-admin-main"><strong>' + r.jmeno + '</strong>' +
+      '<span>' + r.dateFrom + ' → ' + r.dateTo + '</span>' +
+      '<span class="vac-badge ' + vacStatusClass(r.status) + '">' + vacStatusLabel(r.status) + '</span></div>' + actions + '</div>';
+  }).join('');
+}
+
+async function decideVacation(slug, requestId, newStatus) {
+  await window.dbUpdateVacationRequest(slug, requestId, { status: newStatus, decidedAt: new Date().toISOString() });
+  await loadPendingVacations();
+}
+
+async function renderPasswordManagement() {
+  const box = document.getElementById('pwAdminList');
+  box.innerHTML = 'Načítám…';
+  const employees = await window.dbListEmployees();
+  if (!employees.length) { box.innerHTML = '<div class="mgmt-note">Zatím žádní zaměstnanci.</div>'; return; }
+  box.innerHTML = employees.map(e => (
+    '<div class="pw-admin-item"><span><strong>' + (e.jmeno || e.slug) + '</strong>' +
+    (e.id ? ' (ID: ' + e.id + ')' : '') + ' ' +
+    '<span class="pw-status ' + (e.pinHash ? 'pw-set' : 'pw-unset') + '">' + (e.pinHash ? 'heslo nastaveno' : 'bez hesla') + '</span></span>' +
+    '<div class="pw-admin-actions">' +
+    '<button onclick="leaderSetPassword(\'' + e.slug + '\')">Nastavit nové heslo</button>' +
+    '<button onclick="leaderResetPassword(\'' + e.slug + '\')">Zrušit heslo</button>' +
+    '</div></div>'
+  )).join('');
+}
+
+async function leaderSetPassword(slug) {
+  if (!hasCrypto()) { alert('Nastavení hesla vyžaduje HTTPS.'); return; }
+  const newPass = prompt('Nové heslo pro tohoto zaměstnance:');
+  if (!newPass) return;
+  const pinHash = await sha256Hex(newPass);
+  await window.dbUpsertEmployee(slug, { pinHash });
+  alert('Heslo nastaveno. Sděl ho zaměstnanci osobně.');
+  await renderPasswordManagement();
+}
+
+async function leaderResetPassword(slug) {
+  if (!confirm('Opravdu zrušit heslo? Zaměstnanec se pak přihlásí bez hesla.')) return;
+  await window.dbUpsertEmployee(slug, { pinHash: null });
+  await renderPasswordManagement();
+}
+
+async function gatherYearData(year) {
+  const employees = await window.dbListEmployees();
+  const perEmployee = {};
+  for (const emp of employees) {
+    const monthly = [];
+    for (let m = 1; m <= 12; m++) {
+      const data = await window.dbLoadMonth(emp.slug, year + '-' + m);
+      monthly.push(computeMonthTotals(year, m, data));
+    }
+    perEmployee[emp.slug] = { jmeno: emp.jmeno || emp.slug, monthly, shift: emp.smena || '' };
+  }
+  return { employees, perEmployee };
+}
+
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function drawTrendChart(labels, overtimeData, sickData) {
+  destroyChart('chartTrend');
+  charts['chartTrend'] = new Chart(document.getElementById('chartTrend'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Přesčas (h)', data: overtimeData, borderColor: '#f2994a', backgroundColor: 'rgba(242,153,74,.15)', fill: true, tension: .35, pointRadius: 3 },
+        { label: 'Lékař/nemoc (h)', data: sickData, borderColor: '#e07a7a', backgroundColor: 'rgba(224,122,122,.15)', fill: true, tension: .35, pointRadius: 3 }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'hodiny' } } } }
+  });
+}
+
+function drawBreakdownChart(normal, overtime, dov, nv, lek) {
+  destroyChart('chartBreakdown');
+  charts['chartBreakdown'] = new Chart(document.getElementById('chartBreakdown'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Normální práce', 'Přesčas', 'Dovolená', 'NV', 'Lékař/nemoc'],
+      datasets: [{ data: [normal, overtime, dov, nv, lek].map(v => +v.toFixed(1)), backgroundColor: ['#16324f', '#f2994a', '#6fa8dc', '#7cb87c', '#e07a7a'] }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+  });
+}
+
+function drawRankChart(canvasId, labels, values, color) {
+  destroyChart(canvasId);
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: values, backgroundColor: color, borderRadius: 4 }] },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, title: { display: true, text: 'hodiny za rok' } } } }
+  });
+}
+
+function renderEmployeeTable() {
+  const body = document.getElementById('empTableBody');
+  const sorted = [...employeeTableData].sort((a, b) => {
+    let av = a[empSortCol], bv = b[empSortCol];
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toLowerCase(); }
+    if (av < bv) return empSortDir === 'asc' ? -1 : 1;
+    if (av > bv) return empSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  body.innerHTML = sorted.map(e => (
+    '<tr><td>' + e.jmeno + '</td><td>' + (e.smena || '—') + '</td>' +
+    '<td class="num">' + e.worked.toFixed(1) + '</td><td class="num">' + e.overtime.toFixed(1) + '</td>' +
+    '<td class="num">' + e.dov.toFixed(1) + '</td><td class="num">' + e.dovZbyva.toFixed(1) + '</td>' +
+    '<td class="num">' + e.nv.toFixed(1) + '</td><td class="num">' + e.lek.toFixed(1) + '</td></tr>'
+  )).join('') || '<tr><td colspan="8">Žádná data.</td></tr>';
+}
+
+document.querySelectorAll('#empTable th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (empSortCol === col) { empSortDir = empSortDir === 'asc' ? 'desc' : 'asc'; }
+    else { empSortCol = col; empSortDir = 'desc'; }
+    renderEmployeeTable();
+  });
+});
+
+function exportEmployeeCSV() {
+  const header = ['Jméno', 'Směna', 'Odpracováno', 'Přesčas', 'Dovolená', 'Zbývá dovolené', 'NV', 'Lékař/nemoc'];
+  const lines = [header.join(';')];
+  employeeTableData.forEach(e => {
+    lines.push([e.jmeno, e.smena || '', e.worked.toFixed(1), e.overtime.toFixed(1), e.dov.toFixed(1), e.dovZbyva.toFixed(1), e.nv.toFixed(1), e.lek.toFixed(1)].join(';'));
+  });
+  const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'prehled-dochazky-' + (document.getElementById('mgmtRok').value || '') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function buildManagementCharts() {
+  const status = document.getElementById('mgmtStatus');
+  status.textContent = 'Načítám data…';
+
+  const year = parseInt(document.getElementById('mgmtRok').value) || 2026;
+  const selectedSlug = document.getElementById('mgmtEmployee').value;
+  const shiftFilter = document.getElementById('mgmtShift').value;
+
+  const { employees, perEmployee } = await gatherYearData(year);
+  if (employees.length === 0) { status.textContent = 'Zatím nikdo neuložil žádná data.'; return; }
+
+  let filteredEmployees = employees;
+  if (shiftFilter !== 'ALL') filteredEmployees = filteredEmployees.filter(e => perEmployee[e.slug].shift === shiftFilter);
+  if (selectedSlug !== 'ALL') filteredEmployees = filteredEmployees.filter(e => e.slug === selectedSlug);
+
+  if (filteredEmployees.length === 0) {
+    status.textContent = 'Žádní zaměstnanci neodpovídají zvolenému filtru.';
+    document.getElementById('kpiEmployees').textContent = '0';
+    document.getElementById('kpiOvertime').textContent = '0.0 h';
+    document.getElementById('kpiSick').textContent = '0.0 h';
+    document.getElementById('kpiAvg').textContent = '0.0 h';
+    employeeTableData = [];
+    renderEmployeeTable();
+    return;
+  }
+
+  let kpiOvertime = 0, kpiSick = 0;
+  filteredEmployees.forEach(e => { perEmployee[e.slug].monthly.forEach(t => { kpiOvertime += t.totalPre; kpiSick += t.totalLek; }); });
+  document.getElementById('kpiEmployees').textContent = filteredEmployees.length;
+  document.getElementById('kpiOvertime').textContent = kpiOvertime.toFixed(1) + ' h';
+  document.getElementById('kpiSick').textContent = kpiSick.toFixed(1) + ' h';
+  document.getElementById('kpiAvg').textContent = (kpiOvertime / filteredEmployees.length).toFixed(1) + ' h';
+
+  let monthlyOvertime = new Array(12).fill(0), monthlySick = new Array(12).fill(0);
+  filteredEmployees.forEach(e => { perEmployee[e.slug].monthly.forEach((t, idx) => { monthlyOvertime[idx] += t.totalPre; monthlySick[idx] += t.totalLek; }); });
+  drawTrendChart(monthNames, monthlyOvertime.map(v => +v.toFixed(1)), monthlySick.map(v => +v.toFixed(1)));
+
+  let sumNormal = 0, sumOvertime = 0, sumDov = 0, sumNv = 0, sumLek = 0;
+  filteredEmployees.forEach(e => {
+    perEmployee[e.slug].monthly.forEach(t => {
+      sumOvertime += t.totalPre;
+      sumNormal += Math.max(t.totalSmena - t.totalPre, 0);
+      sumDov += t.totalDov; sumNv += t.totalNv; sumLek += t.totalLek;
+    });
+  });
+  drawBreakdownChart(sumNormal, sumOvertime, sumDov, sumNv, sumLek);
+
+  const rankOvertime = filteredEmployees.map(e => ({ name: perEmployee[e.slug].jmeno, total: perEmployee[e.slug].monthly.reduce((s, t) => s + t.totalPre, 0) }))
+    .sort((a, b) => b.total - a.total).slice(0, 20);
+  const rankSick = filteredEmployees.map(e => ({ name: perEmployee[e.slug].jmeno, total: perEmployee[e.slug].monthly.reduce((s, t) => s + t.totalLek, 0) }))
+    .sort((a, b) => b.total - a.total).slice(0, 20);
+  drawRankChart('chartRankOvertime', rankOvertime.map(r => r.name), rankOvertime.map(r => +r.total.toFixed(1)), '#f2994a');
+  drawRankChart('chartRankSick', rankSick.map(r => r.name), rankSick.map(r => +r.total.toFixed(1)), '#e07a7a');
+
+  employeeTableData = filteredEmployees.map(e => {
+    const emp = perEmployee[e.slug];
+    const totals = emp.monthly.reduce((acc, t) => {
+      acc.worked += t.totalSmena; acc.overtime += t.totalPre; acc.dov += t.totalDov; acc.nv += t.totalNv; acc.lek += t.totalLek;
+      return acc;
+    }, { worked: 0, overtime: 0, dov: 0, nv: 0, lek: 0 });
+    totals.dovZbyva = Math.max(VACATION_ALLOWANCE - totals.dov, 0);
+    return { jmeno: emp.jmeno, smena: emp.shift, ...totals };
+  });
+  renderEmployeeTable();
+
+  status.textContent = 'Aktualizováno ' + new Date().toLocaleTimeString('cs-CZ') + ' · ' + filteredEmployees.length + ' z celkem ' + employees.length + ' zaměstnanců';
+}
+</script>
+
+</body>
+</html>
