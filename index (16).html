@@ -1,0 +1,1576 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Flowserve · Docházka</title>
+<script type="module">
+  // --- Firebase (projekt: flowserve-komentare) - identifikace podle firemního ID, bez opravdového přihlašování ---
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCN4GLupQ-KGJDnskNZbv1hqDyC9mddljg",
+    authDomain: "flowserve-komentare.firebaseapp.com",
+    projectId: "flowserve-komentare",
+    storageBucket: "flowserve-komentare.firebasestorage.app",
+    messagingSenderId: "485314474217",
+    appId: "1:485314474217:web:01df7f7dcd18c39bb18078"
+  };
+
+  let db = null;
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  } catch (err) {
+    console.error('Firebase se nepodařilo inicializovat:', err);
+  }
+
+  window.dbSaveMonth = async function (slug, key, data) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try { await setDoc(doc(db, 'dochazka', slug, 'months', key), data); return { ok: true }; }
+    catch (err) { console.error('Uložení do Firestore selhalo:', err); return { ok: false, error: err.code || err.message }; }
+  };
+
+  window.dbLoadMonth = async function (slug, key) {
+    if (!db) return null;
+    try {
+      const snap = await getDoc(doc(db, 'dochazka', slug, 'months', key));
+      return snap.exists() ? snap.data() : null;
+    } catch (err) { console.error('Načtení z Firestore selhalo:', err); return null; }
+  };
+
+  window.dbDeleteMonth = async function (slug, key) {
+    if (!db) return false;
+    try { await deleteDoc(doc(db, 'dochazka', slug, 'months', key)); return true; }
+    catch (err) { console.error('Smazání ve Firestore selhalo:', err); return false; }
+  };
+
+  window.dbUpsertEmployee = async function (slug, fields) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try {
+      await setDoc(doc(db, 'zamestnanci', slug), { ...fields, updatedAt: new Date().toISOString() }, { merge: true });
+      return { ok: true };
+    } catch (err) { console.error('Uložení zaměstnance selhalo:', err); return { ok: false, error: err.code || err.message }; }
+  };
+
+  window.dbGetEmployee = async function (slug) {
+    if (!db) return null;
+    try {
+      const snap = await getDoc(doc(db, 'zamestnanci', slug));
+      return snap.exists() ? snap.data() : null;
+    } catch (err) { console.error('Načtení zaměstnance selhalo:', err); throw err; }
+  };
+
+  window.dbListEmployees = async function () {
+    if (!db) return [];
+    try {
+      const snap = await getDocs(collection(db, 'zamestnanci'));
+      const out = [];
+      snap.forEach(d => { if (!d.id.startsWith('_')) out.push({ slug: d.id, ...d.data() }); });
+      out.sort((a, b) => (a.jmeno || '').localeCompare(b.jmeno || '', 'cs'));
+      return out;
+    } catch (err) { console.error('Načtení seznamu zaměstnanců selhalo:', err); return []; }
+  };
+
+  window.dbAddVacationRequest = async function (slug, jmeno, dateFrom, dateTo) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try {
+      const ref = doc(collection(db, 'zadosti', slug, 'items'));
+      await setDoc(ref, { jmeno, dateFrom, dateTo, status: 'pending', createdAt: new Date().toISOString() });
+      return { ok: true, id: ref.id };
+    } catch (err) { console.error('Odeslání žádosti selhalo:', err); return { ok: false, error: err.code || err.message }; }
+  };
+
+  window.dbListVacationRequests = async function (slug) {
+    if (!db) return [];
+    try {
+      const snap = await getDocs(collection(db, 'zadosti', slug, 'items'));
+      const out = [];
+      snap.forEach(d => out.push({ id: d.id, ...d.data() }));
+      return out;
+    } catch (err) { console.error('Načtení žádostí selhalo:', err); return []; }
+  };
+
+  window.dbUpdateVacationRequest = async function (slug, requestId, updates) {
+    if (!db) return false;
+    try { await setDoc(doc(db, 'zadosti', slug, 'items', requestId), updates, { merge: true }); return true; }
+    catch (err) { console.error('Aktualizace žádosti selhala:', err); return false; }
+  };
+  window.dbListMonths = async function (slug) {
+    if (!db) return {};
+    try { const snap = await getDocs(collection(db, 'dochazka', slug, 'months')); const out = {}; snap.forEach(d => { out[d.id] = d.data(); }); return out; }
+    catch (err) { console.error('Načtení měsíců selhalo:', err); return {}; }
+  };
+  window.dbSetEmployee = async function (slug, data) {
+    if (!db) return { ok: false, error: 'Firebase není nastaven.' };
+    try { await setDoc(doc(db, 'zamestnanci', slug), data); return { ok: true }; } catch (err) { return { ok: false, error: err.code || err.message }; }
+  };
+  window.dbDeleteEmployee = async function (slug) {
+    if (!db) return false;
+    try { await deleteDoc(doc(db, 'zamestnanci', slug)); return true; } catch (err) { console.error(err); return false; }
+  };
+  window.dbSetVacationRequest = async function (slug, id, data) {
+    if (!db) return false;
+    try { await setDoc(doc(db, 'zadosti', slug, 'items', id), data); return true; } catch (err) { console.error(err); return false; }
+  };
+  window.dbDeleteVacationRequest = async function (slug, id) {
+    if (!db) return false;
+    try { await deleteDoc(doc(db, 'zadosti', slug, 'items', id)); return true; } catch (err) { console.error(err); return false; }
+  };
+</script>
+<style>
+  * { box-sizing: border-box; }
+  :root { --red: #C8102E; --red-dark: #9E0C24; --ink: #2b2b2b; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    background: #f1f1f1; margin: 0; padding: 24px; color: #2b2b2b;
+  }
+  .topbar { max-width: 1300px; margin: 0 auto 10px auto; display: flex; justify-content: flex-end; }
+  .topbar button {
+    border: 1px solid var(--red); background: #fff; color: var(--ink); border-radius: 6px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .topbar button:hover { background: #f3f3f3; }
+
+  .sheet {
+    max-width: 1300px; margin: 0 auto; background: #fff; padding: 26px 28px;
+    border: 1px solid #dedede; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 10px 28px rgba(15,23,42,.05);
+  }
+  h1 { text-align: center; font-size: 24px; font-weight: 600; letter-spacing: .2px; color: var(--ink); margin: 0 0 18px 0; }
+  h2.section-title { color: var(--ink); font-size: 15px; font-weight: 700; margin: 0 0 12px 0; }
+
+  /* --- vstupní karta (identifikace) --- */
+  .id-card {
+    background: linear-gradient(135deg, #f6f6f6, #f3f3f3);
+    border: 1px solid #f6c9d1; border-radius: 10px; padding: 18px 20px; margin-bottom: 20px;
+  }
+  .id-card h2 { margin: 0 0 4px 0; font-size: 15px; color: var(--ink); }
+  .id-card p.hint { margin: 0 0 14px 0; font-size: 12.5px; color: #5b7692; }
+  .id-card-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .id-card-row .f { display: flex; flex-direction: column; gap: 4px; }
+  .id-card-row label { font-size: 11.5px; font-weight: 700; color: #375a78; }
+  .id-card-row input { border: 1px solid #bcd4e8; border-radius: 6px; padding: 8px 10px; font-size: 14px; min-width: 140px; background: #fff; }
+  .id-card-row input:focus { outline: none; border-color: var(--red); }
+  .id-card-row button {
+    border: none; background: var(--red); color: #fff; border-radius: 6px;
+    padding: 10px 22px; font-weight: 700; font-size: 14px; cursor: pointer; height: 38px;
+  }
+  .id-card-row button:hover { background: #1e4a73; }
+  .id-card-row button:disabled { opacity: .6; cursor: default; }
+  .id-error { margin-top: 10px; color: #8a2f2f; font-size: 13px; font-weight: 600; }
+
+  .id-logged-bar {
+    display: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    background: #ddefd0; border: 1px solid #b9dba0; border-radius: 10px;
+    padding: 10px 16px; margin-bottom: 20px; font-size: 13.5px; color: #2f6b2f; font-weight: 600;
+  }
+  .id-logged-bar button {
+    border: 1px solid #2f6b2f; background: #fff; color: #2f6b2f; border-radius: 6px;
+    padding: 6px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .id-logged-bar button:hover { background: #eaf6e2; }
+
+  .print-header { display: none; }
+
+  .top-info { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .top-info .fields { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
+  .top-info label { font-weight: 600; color: #555555; margin-right: 4px; font-size: 14px; }
+  .top-info select, .top-info input {
+    border: none; border-bottom: 1.5px solid #c9c9c9; font-size: 14px; padding: 3px 4px;
+    color: var(--ink); background: transparent;
+  }
+  .top-info select:focus, .top-info input:focus { outline: none; border-bottom-color: var(--red); }
+
+  .paper { border: 3px solid #222; background: #fff; font-family: "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color: #111; }
+  .p-band { height: 22px; border-bottom: 2px solid #222; }
+  .p-title { text-align: center; font-weight: 700; font-size: 23px; padding: 6px 0 5px; border-bottom: 2px solid #222; }
+  .p-who { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; padding: 3px 12px 5px 6px; border-bottom: 2px solid #222; min-height: 46px; font-size: 13px; }
+  .pw-lab { display: block; font-size: 12px; }
+  .ink, .paper input, .paper select { font-family: "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color: #1f2f9a; }
+  #hdrName { font-size: 20px; letter-spacing: 1px; text-transform: uppercase; }
+  .pw-r { display: flex; gap: 20px; align-items: baseline; font-size: 14px; }
+  .pw-r select, .pw-r input { border: none; border-bottom: 1px solid #aaa; background: transparent; font-size: 18px; width: 44px; text-align: center; -webkit-appearance: none; appearance: none; padding: 0; }
+  .pw-r input#rok { width: 66px; }
+  table.main { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  table.main th, table.main td { border: 1.5px solid #222; text-align: center; padding: 0; font-size: 13px; height: 26px; }
+  table.main thead th { height: 42px; font-weight: 600; background: #fff; color: #222; line-height: 1.15; }
+  col.datum { width: 62px; } col.time { width: 8.5%; } col.abs { width: 10.5%; } col.pozn { width: auto; }
+  table.main thead th.col-dovolena { background: #62b6ee; }
+  table.main thead th.col-nv { background: #7bc143; }
+  table.main thead th.col-prescas { background: #e8541f; color: #5a1500; }
+  table.main thead th.col-lekar { background: #b3141b; color: #fff; }
+  table.main input { width: 100%; height: 24px; border: none; background: transparent; text-align: center; font-size: 15px; padding: 0; }
+  table.main input:focus { background: #fff6cf; outline: none; }
+  input[type=time]::-webkit-calendar-picker-indicator { display: none; }
+  input[type=number] { -moz-appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { display: none; }
+  td.hodsmena, td.prescas-cell { font-family: "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color: #1f2f9a; font-size: 15px; }
+  td.datum-cell { text-align: left; padding-left: 4px; font-weight: 700; font-size: 12px; }
+  td.datum-cell small { font-weight: 400; color: #888; font-size: 9px; margin-left: 4px; }
+  tr.weekend td { background: #fdecc8 !important; }
+  tr.holiday td { background: #f9d0d0 !important; }
+  tr.vacation-approved:not(.weekend):not(.holiday) td { background: #cdeed6 !important; }
+  tr.weekend td.datum-cell, tr.holiday td.datum-cell { color: #b3141b; }
+  @media (max-width: 760px) { .paper { overflow-x: auto; } table.main { min-width: 640px; } }
+
+  table.main input:disabled, table.bonus-t input:disabled { background: rgba(0,0,0,.05); cursor: not-allowed; }
+  table.main input.bad, table.main input.warn { background: #fbd5d5; }
+  .legend { display: flex; gap: 22px; align-items: center; font-size: 12.5px; color: #555555; margin: 10px 0 6px 0; flex-wrap: wrap; }
+  .legend span.swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #c9c9c9; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+  .swatch.weekend { background: #fdecc8; }
+  .swatch.holiday { background: #f9d0d0; }
+  .swatch.vacation { background: #bdeecb; }
+
+  tr.uzaverka-label td { background: #fff; font-size: 12px; height: 38px; line-height: 1.1; font-weight: 400; }
+  tr.uzaverka-label td.uzaverka-title { font-size: 20px; font-weight: 700; }
+  tr.uzaverka-row td { height: 22px; text-align: right; padding-right: 5px; font-weight: 700; font-size: 13px; color: #fff; }
+  tr.uzaverka-row td#sumSmena { background: #fff; color: #111; }
+  #sumDovolena { background: #2f8fe0; } #sumNv { background: #4fae2c; } #sumPrescas { background: #e5501b; } #sumLekar { background: #b3141b; }
+  .bonus-wrap { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-family: "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; }
+  .footer-note { color: #b3141b; font-weight: 700; font-size: 17px; }
+  .bonus-lab { display: flex; font-size: 13px; text-align: center; }
+  .bonus-lab span { flex: 1; }
+  table.bonus-t { border-collapse: collapse; width: 240px; }
+  table.bonus-t td { border: 2px solid #b3141b; height: 24px; padding: 0; }
+  table.bonus-t input { width: 100%; height: 22px; border: none; background: transparent; text-align: center; font-family: "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color: #1f2f9a; font-size: 14px; }
+  .open-btn { border: 1px solid var(--red); background: #fff; color: var(--ink); border-radius: 5px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+
+  .controls { text-align: center; margin: 22px 0; }
+  .controls button {
+    font-size: 14px; font-weight: 600; padding: 9px 20px; margin: 0 6px; cursor: pointer;
+    border: 1px solid var(--red); background: var(--red); color: #fff; border-radius: 6px;
+    transition: background .15s, transform .05s;
+  }
+  .controls button:hover { background: #1e4266; }
+  .controls button:active { transform: translateY(1px); }
+  .controls button.secondary { background: #fff; color: var(--ink); }
+  .controls button.secondary:hover { background: #f3f3f3; }
+
+  .balance-box { display: flex; gap: 16px; margin-top: 18px; flex-wrap: wrap; }
+  .balance-item {
+    flex: 1; min-width: 220px; background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 10px;
+    padding: 12px 16px; border-left: 4px solid #6fa8dc;
+  }
+  .balance-item:last-child { border-left-color: #e07a7a; }
+  .balance-label { font-size: 11.5px; color: #666666; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; }
+  .balance-value { font-size: 14px; font-weight: 700; color: var(--ink); }
+
+  .vacation-planner { margin-top: 24px; background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 10px; padding: 16px 18px; }
+  .vac-form { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+  .vac-form .f { display: flex; flex-direction: column; gap: 4px; }
+  .vac-form label { font-size: 11.5px; font-weight: 700; color: #666666; }
+  .vac-form input { border: 1px solid #c9c9c9; border-radius: 6px; padding: 7px 9px; font-size: 13.5px; }
+  .vac-form button { border: none; background: var(--red); color: #fff; border-radius: 6px; padding: 9px 16px; font-weight: 600; font-size: 13px; cursor: pointer; height: 34px; }
+  .vac-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #e2e2e2; font-size: 13px; }
+  .vac-cancel-btn { margin-left: auto; border: 1px solid #c9c9c9; background: #fff; border-radius: 5px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
+  .vac-refresh-btn { border: 1px solid #c9c9c9; background: #fff; color: var(--ink); border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-bottom: 10px; }
+
+  .vac-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 600; }
+  .vac-pending   { background: #fdecc8; color: #8a5a12; }
+  .vac-approved  { background: #ddefd0; color: #2f6b2f; }
+  .vac-rejected  { background: #f6d3d3; color: #8a2f2f; }
+  .vac-cancelled { background: #e2e2e2; color: #666666; }
+
+  #manageSheet { padding: 0; overflow: hidden; }
+  .mg-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: var(--red); color: #fff; padding: 16px 24px; }
+  .mg-head h1 { margin: 0; font-size: 20px; text-align: left; color: #fff; }
+  .mg-head span { font-size: 12.5px; color: #f6c9d1; }
+  .mg-btns button { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.35); border-radius: 6px; padding: 7px 12px; font-size: 12.5px; cursor: pointer; margin-left: 6px; }
+  .mg-tabs { display: flex; gap: 4px; padding: 10px 24px 0; border-bottom: 1px solid #e2e2e2; background: #f6f6f6; }
+  .mg-tabs button { border: none; background: none; padding: 9px 16px; font-size: 13.5px; font-weight: 600; color: #666666; cursor: pointer; border-bottom: 3px solid transparent; }
+  .mg-tabs button.on { color: var(--ink); border-bottom-color: var(--red); }
+  .cnt { background: #d68a00; color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+  .cnt:empty { display: none; }
+  .mg-body { padding: 18px 24px 26px; }
+  .mg-bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .mg-bar .f { display: flex; flex-direction: column; gap: 3px; }
+  .mg-bar label { font-size: 11px; font-weight: 700; color: #666666; text-transform: uppercase; }
+  .mg-bar label.chk { text-transform: none; font-size: 13px; color: var(--ink); display: flex; gap: 6px; align-items: center; padding-bottom: 7px; }
+  .mg-bar input, .mg-bar select { border: 1px solid #c9c9c9; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+  #gY { width: 70px; } .pp { display: flex; gap: 4px; }
+  .mg-bar button, .m-btns button, .act button, .vrow button, .det button, .bulk button { border: 1px solid #c9c9c9; background: #fff; color: var(--ink); border-radius: 6px; padding: 6px 11px; font-size: 12px; cursor: pointer; }
+  button.pri { background: var(--red) !important; color: #fff !important; border-color: var(--red) !important; font-weight: 600; }
+  button.del { color: #a02222 !important; }
+  .mgmt-note { font-size: 12px; color: #8c8c8c; margin: 4px 0 10px; }
+  .mg-tw { overflow-x: auto; border: 1px solid #e2e2e2; border-radius: 10px; }
+  table.emp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.emp-table th, table.emp-table td { padding: 7px 9px; border-bottom: 1px solid #ebebeb; text-align: left; white-space: nowrap; }
+  table.emp-table th { background: #f6f6f6; color: var(--ink); cursor: pointer; user-select: none; font-size: 11px; text-transform: uppercase; }
+  table.emp-table .num { text-align: right; }
+  table.emp-table tr.gh td { background: #fbe9ec; font-weight: 700; color: var(--ink); }
+  table.emp-table tr.tot td { background: #f3f3f3; font-weight: 700; }
+  table.emp-table tr.open td { background: #fff6cf; }
+  table.emp-table td.act { text-align: right; } .act button { margin-left: 4px; }
+  table.emp-table td a { color: var(--ink); font-weight: 600; text-decoration: none; }
+  tr.det > td { background: #fafafa; white-space: normal; padding: 12px 16px; }
+  .dtab { border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+  .dtab th, .dtab td { border: 1px solid #dedede; padding: 3px 9px; text-align: center; }
+  .dtab tr.we td { background: #fdecc8; } .dtab tr.ho td { background: #f9d0d0; }
+  .ys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .ys div { border: 1px solid #dedede; border-radius: 6px; padding: 4px 8px; font-size: 11.5px; cursor: pointer; background: #fff; }
+  .ys div.on { border-color: var(--red); background: #fbe9ec; }
+  .bulk { background: #fff6cf; border: 1px solid #f0dc8a; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; display: flex; gap: 10px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+  .vrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #ebebeb; font-size: 13px; flex-wrap: wrap; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 50; align-items: center; justify-content: center; }
+  .modal { background: #fff; border-radius: 12px; padding: 20px 22px; width: min(430px, 92vw); max-height: 90vh; overflow: auto; }
+  .modal h3 { margin: 0 0 8px; color: var(--ink); }
+  .modal label { display: block; font-size: 11.5px; font-weight: 700; color: #666666; margin: 10px 0 3px; }
+  .modal input[type=text], .modal input[type=password], .modal input[type=date], .modal select { width: 100%; box-sizing: border-box; border: 1px solid #c9c9c9; border-radius: 6px; padding: 8px 9px; font-size: 14px; }
+  .m-err { color: #b91c1c; font-size: 12.5px; min-height: 16px; margin-top: 8px; }
+  .m-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+  .appbar { background: #fff; margin: -24px -24px 22px; padding: 0 24px; border-bottom: 3px solid var(--red); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .appin { max-width: 1300px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 14px; min-height: 66px; }
+  .brandrow { display: flex; align-items: center; gap: 16px; }
+  .logo { display: flex; align-items: center; justify-content: center; background: var(--red); height: 48px; min-width: 120px; }
+  .logo img { height: 48px; width: auto; display: block; }
+  .logo .lt { display: none; color: #fff; font-weight: 800; font-size: 18px; letter-spacing: 3px; padding: 0 14px; }
+  .brand b { display: block; font-size: 18px; color: var(--ink); } .brand span { display: block; font-size: 12px; color: #666; }
+  .appbar button { border: 1px solid var(--red); background: #fff; color: var(--red); border-radius: 6px; padding: 8px 16px; font-weight: 600; font-size: 13px; cursor: pointer; }
+  .appbar button:hover { background: var(--red); color: #fff; }
+  .close-bar { display: none; align-items: center; gap: 12px; flex-wrap: wrap; background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; font-size: 13px; }
+  .close-bar .sp { flex: 1; }
+  .close-bar button { border: 1px solid #c9c9c9; background: #fff; color: var(--ink); border-radius: 6px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .st { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .st-open { background: #e2e2e2; color: #555555; } .st-sent { background: #fdecc8; color: #8a5a12; } .st-ok { background: #ddefd0; color: #2f6b2f; } .st-none { color: #8c8c8c; }
+  .toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .toast { background: #2b2b2b; color: #fff; border-radius: 8px; padding: 10px 14px; font-size: 13px; display: flex; gap: 14px; align-items: center; box-shadow: 0 6px 20px rgba(15,23,42,.3); }
+  .toast button { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .ph { display: none; }
+  body.locked table.main input:disabled, body.locked table.bonus-t input:disabled { background: transparent; cursor: default; }
+
+  @media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    body { background: #fff; padding: 0; }
+    .sheet { border: none; padding: 0; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .sheet { box-shadow: none; }
+    col.datum { width: 12%; } col.time { width: 17%; } col.abs { width: 18%; }
+    table.main th, table.main td { height: 17px; font-size: 11px; }
+    table.main thead th { height: 28px; }
+    table.main input { height: 15px; font-size: 11px; }
+    td.hodsmena, td.prescas-cell { font-size: 11px; }
+    .p-band { height: 10px; } .p-title { font-size: 17px; padding: 2px 0; } .p-who { min-height: 30px; padding-bottom: 2px; } #hdrName { font-size: 16px; }
+    .bonus-wrap { margin-top: 6px; } .footer-note { font-size: 13px; }
+    .no-print { display: none !important; }
+    .ph { display: block; text-align: center; font-weight: 700; font-size: 15px; color: var(--ink); margin: 0 0 8px; }
+    #manageSheet .act, #manageSheet th:last-child, #manageSheet td:first-child, #manageSheet th:first-child, #manageSheet tr.det { display: none !important; }
+    .uzaverka-row, .uzaverka-label, .uzaverka-title { display: none !important; }
+    .col-hodsmena, .col-prescas, .col-poznamka { display: none !important; }
+    table.main input { border: none; }
+    table.main input::placeholder { color: transparent !important; }
+    #printWrap { overflow: hidden; }
+    .print-header { display: block; text-align: center; font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="appbar no-print"><div class="appin">
+  <div class="brandrow">
+    <span class="logo"><img id="flsLogo" alt="Flowserve" referrerpolicy="no-referrer"><span class="lt">FLOWSERVE</span></span>
+    <span class="brand"><b>Docházka</b><span>Kontrolní list docházky · v2.0</span></span>
+  </div>
+  <button onclick="toggleManage()" id="btnToggleManage">Správa pro vedoucí</button>
+</div></header>
+
+<div id="printWrap">
+<div class="sheet" id="mainSheet">
+
+  <div class="id-card no-print" id="idCard">
+    <h2>Vstup do docházky</h2>
+    <p class="hint">Zadej firemní ID. Jsi-li tu poprvé, vyplň i jméno a volitelně heslo. Pak klikni na Vstoupit (nebo stiskni Enter).</p>
+    <div class="id-card-row">
+      <div class="f"><label>Firemní ID</label><input type="text" id="firemniId" placeholder="např. 12345"></div>
+      <div class="f" id="jmenoField" style="display:none;"><label>Jméno (nové ID - zapíše se jen jednou)</label><input type="text" id="jmeno" placeholder="celé jméno"></div>
+      <div class="f"><label>Heslo (nepovinné)</label><input type="password" id="heslo" placeholder="nepovinné"></div>
+      <button id="btnEnter" onclick="handleEnter()">Vstoupit</button>
+    </div>
+    <div class="id-error" id="idErrorNote"></div>
+  </div>
+
+  <div class="id-logged-bar no-print" id="idLoggedBar">
+    <span>Přihlášen: <span id="loggedWhoText"></span></span>
+    <span><button id="btnLeaderBack" style="display:none" onclick="leaderBack()">← Zpět do správy</button> <button onclick="switchUser()">Přepnout uživatele</button></span>
+  </div>
+
+
+  <div class="top-info no-print">
+    <div class="fields"><div><label>Směna:</label>
+      <select id="smena"><option value="">—</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select>
+    </div></div>
+  </div>
+
+  <div class="legend no-print">
+    <div><span class="swatch weekend"></span>Víkend</div>
+    <div><span class="swatch holiday"></span>Státní svátek (odpracované hodiny jdou do přesčasu)</div>
+    <div><span class="swatch vacation"></span>Schválená dovolená</div>
+    <div>Přesčas se počítá automaticky z Příchodu/Odchodu. Dovolená/NV/Lékař se píší ručně v hodinách (např. 7,5). Časy piš bez dvojtečky, např. 0600 nebo 1400 - dvojtečka se doplní sama. Víc úseků v jednom dni (např. lékař uprostřed): Příchod <b>0600 1000</b>, Odchod <b>0700 1400</b>; hodiny u lékaře napiš do sloupce Lékař/nemoc.</div>
+  </div>
+
+  <div class="close-bar no-print" id="closeBar"></div>
+
+  <div class="paper">
+    <div class="p-band"></div>
+    <div class="p-title">Kontrolní list docházky</div>
+    <div class="p-who">
+      <div><span class="pw-lab">Jméno pracovníka:</span><span id="hdrName" class="ink"></span></div>
+      <div class="pw-r"><span>Měsíc: <select id="mesic"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></span><span>Rok: <input type="number" id="rok" value="2026"></span></div>
+    </div>
+  <table class="main" id="dochazkaTable">
+    <colgroup>
+      <col class="datum">
+      <col class="time"><col class="time"><col class="time col-hodsmena">
+      <col class="abs"><col class="abs"><col class="time col-prescas"><col class="abs">
+      <col class="pozn col-poznamka">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Datum</th><th>Příchod</th><th>Odchod</th><th class="col-hodsmena">Hod/<br>Směna</th>
+        <th class="col-dovolena">Dovolená</th><th class="col-nv">NV</th>
+        <th class="col-prescas">Přesčas</th><th class="col-lekar">Lékař/<br>nemoc</th><th class="col-poznamka">Poznámka</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+    <tfoot>
+      <tr class="uzaverka-label">
+        <td colspan="3" rowspan="2" class="uzaverka-title">Uzávěrka</td>
+        <td>Hod.<br>Celkem</td><td>Hod.<br>Celkem</td><td>Hod.<br>Celkem</td><td>Hod.<br>Celkem</td><td>Hod.<br>Celkem</td>
+        <td rowspan="2"></td>
+      </tr>
+      <tr class="uzaverka-row">
+        <td id="sumSmena">0</td><td id="sumDovolena">0</td><td id="sumNv">0</td><td id="sumPrescas">0</td><td id="sumLekar">0</td>
+      </tr>
+    </tfoot>
+  </table>
+  </div>
+
+  <div class="bonus-wrap">
+    <div class="footer-note">Nárok na extra bonus na stravování :</div>
+    <div>
+      <div class="bonus-lab"><span>Datum</span><span>počet</span></div>
+      <table class="bonus-t"><tr><td><input class="bonus-in"></td><td><input class="bonus-in"></td></tr><tr><td><input class="bonus-in"></td><td><input class="bonus-in"></td></tr><tr><td><input class="bonus-in"></td><td><input class="bonus-in"></td></tr></table>
+    </div>
+  </div>
+
+  <div class="balance-box no-print" id="vacBalanceBox">
+    <div class="balance-item">
+      <div class="balance-label">Dovolená (25 dní / 187,5 h ročně)</div>
+      <div class="balance-value" id="vacBalanceText">—</div>
+    </div>
+    <div class="balance-item">
+      <div class="balance-label">Lékař / nemoc celkem za rok</div>
+      <div class="balance-value" id="sickBalanceText">—</div>
+    </div>
+  </div>
+
+  <div class="vacation-planner no-print">
+    <h2 class="section-title">Plánování dovolené</h2>
+    <div class="vac-form">
+      <div class="f"><label>Od</label><input type="date" id="vacFrom"></div>
+      <div class="f"><label>Do</label><input type="date" id="vacTo"></div>
+      <button onclick="submitVacationRequest()">Požádat o dovolenou</button>
+    </div>
+    <button class="vac-refresh-btn" onclick="manualRefreshVacations()">Aktualizovat stav žádostí</button>
+    <div id="vacMyList"></div>
+  </div>
+</div>
+
+<div class="sheet" id="manageSheet" style="display:none;">
+  <div class="mg-head no-print">
+    <div><h1>Správa docházky</h1><span id="mgWho"></span></div>
+    <div class="mg-btns"><button onclick="undoLast()">↶ Vrátit poslední změnu</button><button onclick="myAccount()">Můj účet</button><button onclick="leaderLogout()">Odhlásit</button></div>
+  </div>
+  <div class="mg-tabs no-print">
+    <button data-t="emp" class="on" onclick="setTab('emp')">Zaměstnanci <b id="empCnt" class="cnt"></b></button>
+    <button data-t="vac" onclick="setTab('vac')">Žádosti o dovolenou <b id="vacCnt" class="cnt"></b></button>
+    <button data-t="log" onclick="setTab('log')">Historie změn</button>
+  </div>
+  <div class="mg-body">
+    <div class="mg-bar no-print" id="mgBar">
+      <div class="f"><label>Období</label><span class="pp"><button onclick="shiftPer(-1)">‹</button><select id="gM" onchange="setPer(+gid('gY').value,+this.value)"></select><input type="number" id="gY" onchange="setPer(+this.value,+gid('gM').value)"><button onclick="shiftPer(1)">›</button></span></div>
+      <div class="f"><label>Hledat</label><input type="text" id="gQ" placeholder="jméno nebo ID" oninput="FIL.q=this.value;refilter()"></div>
+      <div class="f"><label>Skupina</label><select id="gG" onchange="FIL.grp=this.value;refilter()"></select></div>
+      <div class="f"><label>Směna</label><select id="gS" onchange="FIL.shift=this.value;refilter()"><option value="">Všechny</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="-">Bez směny</option></select></div>
+      <div class="f"><label>Uzávěrka</label><select id="gU" onchange="FIL.st=this.value;refilter()"><option value="">Všechny</option><option value="sent">K schválení</option><option value="ok">Uzavřeno</option><option value="open">Otevřeno</option><option value="none">Bez záznamu</option></select></div>
+      <label class="chk"><input type="checkbox" id="gGr" onchange="FIL.group=this.checked;renderEmp()"> Seskupit podle skupin</label>
+      <button class="pri" onclick="empDialog()">+ Přidat zaměstnance</button>
+      <button onclick="exportCSV()">Export CSV</button>
+      <button onclick="window.print()">Tisk přehledu</button>
+    </div>
+    <div id="tabEmp">
+      <div id="mgBulk"></div>
+      <div class="mgmt-note no-print">Klikni na jméno pro denní přehled a celý rok, na záhlaví sloupce pro řazení. „Docházka“ otevře tabulku k úpravě.</div>
+      <div class="ph" id="mgPh"></div>
+      <div class="mg-tw" id="empWrap"></div>
+    </div>
+    <div id="tabVac" style="display:none"></div>
+    <div id="tabLog" style="display:none"></div>
+  </div>
+</div>
+<div class="modal-bg no-print" id="modalBg" style="display:none"><div class="modal"><h3 id="mTitle"></h3><div id="mBody"></div><div class="m-err" id="mErr"></div><div class="m-btns"><button id="mCancel">Zrušit</button><button id="mOk" class="pri"></button></div></div></div>
+<div class="toasts no-print" id="toasts"></div>
+</div>
+
+<div class="controls no-print" id="mainControls">
+  <button onclick="preparePrint()">Tisk</button>
+  <button class="secondary" onclick="resetTable()">Vymazat vše</button>
+  <span id="saveStatus" style="font-size:12px;color:#666;margin-left:10px;"></span>
+</div>
+
+<script>
+const DAYS = 31;
+const tbody = document.getElementById('tbody');
+
+function timeToHours(t) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return +m[1] + +m[2] / 60;
+}
+function num(v) { return parseFloat(String(v == null ? '' : v).replace(',', '.')); }
+function fmtHours(x) { return x > 0.001 ? fmtT(x) : ''; }
+
+function slugify(name) {
+  const s = (name || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s || 'zamestnanec';
+}
+function dateStr(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function hasCrypto() { return !!(window.crypto && window.crypto.subtle); }
+
+function buildRow(day) {
+  const tr = document.createElement('tr');
+  tr.dataset.day = day;
+  tr.dataset.holiday = '0';
+  tr.innerHTML = `
+    <td class="datum-cell">${day}.</td>
+    <td><input type="text" inputmode="numeric" autocomplete="off" maxlength="17" class="tm prichod"></td>
+    <td><input type="text" inputmode="numeric" autocomplete="off" maxlength="17" class="tm odchod"></td>
+    <td class="hodsmena col-hodsmena">0.0</td>
+    <td class="col-dovolena"><input type="text" inputmode="decimal" autocomplete="off" maxlength="5" class="dn dov-hod"></td>
+    <td class="col-nv"><input type="text" inputmode="decimal" autocomplete="off" maxlength="5" class="dn nv-hod"></td>
+    <td class="col-prescas prescas-cell">0.0</td>
+    <td class="col-lekar"><input type="text" inputmode="decimal" autocomplete="off" maxlength="5" class="dn lek-hod"></td>
+    <td class="col-poznamka"><input type="text" class="poznamka"></td>
+  `;
+  return tr;
+}
+for (let d = 1; d <= DAYS; d++) tbody.appendChild(buildRow(d));
+
+function getEasterSunday(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+function getCzechHolidays(year) {
+  const easter = getEasterSunday(year);
+  const goodFriday = new Date(easter); goodFriday.setDate(easter.getDate() - 2);
+  const easterMonday = new Date(easter); easterMonday.setDate(easter.getDate() + 1);
+  const fixed = [[1,1],[5,1],[5,8],[7,5],[7,6],[9,28],[10,28],[11,17],[12,24],[12,25],[12,26]];
+  const holidays = fixed.map(([m, d]) => new Date(year, m - 1, d));
+  holidays.push(goodFriday, easterMonday);
+  return holidays;
+}
+function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); }
+
+const dayNames = ['Ne','Po','Út','St','Čt','Pá','So'];
+const monthNames = ['Led','Úno','Bře','Dub','Kvě','Čvn','Čvc','Srp','Zář','Říj','Lis','Pro'];
+
+const SHIFT_LENGTH = 7.5;
+const BREAK_EVERY = 6;
+const BREAK_DURATION = 0.5;
+const VACATION_DAYS_PER_YEAR = 25;
+const VACATION_HOURS_PER_DAY = 7.5;
+const VACATION_ALLOWANCE = VACATION_DAYS_PER_YEAR * VACATION_HOURS_PER_DAY; // 187.5 h
+
+let approvedVacationDays = new Set();
+
+function rebuildCalendar() {
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+
+  tbody.querySelectorAll('tr').forEach((tr, idx) => {
+    const day = idx + 1;
+    tr.classList.remove('weekend', 'holiday', 'vacation-approved');
+    if (day > numDays) { tr.style.display = 'none'; tr.dataset.holiday = '0'; return; }
+    tr.style.display = '';
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isHoliday = holidays.some(h => h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day);
+    if (dow === 0 || dow === 6) tr.classList.add('weekend');
+    if (isHoliday) tr.classList.add('holiday');
+    if (approvedVacationDays.has(dateStr(year, month, day))) tr.classList.add('vacation-approved');
+    tr.dataset.holiday = isHoliday ? '1' : '0';
+    tr.title = isHoliday ? 'Státní svátek' : ((dow === 0 || dow === 6) ? 'Víkend' : '');
+    tr.dataset.weekend = (dow === 0 || dow === 6) ? '1' : '0';
+    tr.querySelector('.datum-cell').innerHTML = day + '.<small>' + dayNames[dow] + '</small>';
+  });
+  updatePrintHeader();
+  recalc();
+}
+
+function updatePrintHeader() {
+  const el = document.getElementById('hdrName');
+  if (el) el.textContent = displayWho || '';
+}
+
+// Příchod i Odchod mohou obsahovat víc časů oddělených mezerou (např. 06:00 10:00 / 07:00 14:00) - páruje se podle pořadí.
+const timeList = v => String(v || '').trim().split(/\s+/).filter(Boolean);
+function computeDay(prichod, odchod, isHoliday, isWeekend) {
+  const a = timeList(prichod).map(timeToHours), b = timeList(odchod).map(timeToHours);
+  let gross = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] == null || b[i] == null) continue;
+    let d = b[i] - a[i]; if (d < 0) d += 24;
+    gross += d;
+  }
+  const worked = Math.max(gross - Math.floor(gross / BREAK_EVERY) * BREAK_DURATION, 0);
+  const overtime = (isHoliday || isWeekend) ? worked : Math.max(worked - SHIFT_LENGTH, 0);
+  return { worked, overtime };
+}
+function liveTimes(raw) {
+  const out = [];
+  raw.replace(/[^\d: ]/g, '').split(/\s+/).filter(Boolean).forEach(tok => {
+    while (tok.length) {
+      let t;
+      if (tok.includes(':')) { t = tok.slice(0, 5); tok = tok.slice(5); }
+      else if (tok.length >= 4) { t = tok.slice(0, 2) + ':' + tok.slice(2, 4); tok = tok.slice(4); }
+      else { t = tok; tok = ''; }
+      out.push(t);
+    }
+  });
+  const sres = out.slice(0, 3).join(' ');
+  return /\s$/.test(raw) && out.length > 0 && out.length < 3 ? sres + ' ' : sres;
+}
+function normTimes(v) {
+  const r = [];
+  for (const t of timeList(v)) { const n = normTime(t); if (n === null) return null; if (n) r.push(n); }
+  return r.join(' ');
+}
+
+function recalc() {
+  let totalSmena = 0, totalDov = 0, totalNv = 0, totalPre = 0, totalLek = 0;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+    const prichod = tr.querySelector('.prichod').value;
+    const odchod = tr.querySelector('.odchod').value;
+    const smenaCell = tr.querySelector('.hodsmena');
+    const prescasCell = tr.querySelector('.prescas-cell');
+    const dovHours = num(tr.querySelector('.dov-hod').value) || 0;
+    const nvHours = num(tr.querySelector('.nv-hod').value) || 0;
+    const lekHours = num(tr.querySelector('.lek-hod').value) || 0;
+    const isHoliday = tr.dataset.holiday === '1';
+    const isWeekend = tr.dataset.weekend === '1';
+    const { worked, overtime } = computeDay(prichod, odchod, isHoliday, isWeekend);
+    const warn = !!(prichod.trim() && odchod.trim() && timeList(prichod).length !== timeList(odchod).length);
+    tr.querySelector('.prichod').classList.toggle('warn', warn); tr.querySelector('.odchod').classList.toggle('warn', warn);
+    smenaCell.textContent = fmtHours(worked);
+    prescasCell.textContent = fmtHours(overtime);
+    totalSmena += worked; totalPre += overtime; totalDov += dovHours; totalNv += nvHours; totalLek += lekHours;
+  });
+  document.getElementById('sumSmena').textContent = fmtT(totalSmena);
+  document.getElementById('sumDovolena').textContent = fmtT(totalDov);
+  document.getElementById('sumNv').textContent = fmtT(totalNv);
+  document.getElementById('sumPrescas').textContent = fmtT(totalPre);
+  document.getElementById('sumLekar').textContent = fmtT(totalLek);
+}
+
+function normTime(v) {
+  v = (v || '').trim();
+  const d = v.replace(/\D/g, '');
+  if (!d) return '';
+  let h, m;
+  if (v.includes(':')) { const p = v.split(':'); h = p[0].replace(/\D/g, ''); m = (p[1] || '').replace(/\D/g, '') || '0'; }
+  else if (d.length <= 2) { h = d; m = '0'; }
+  else if (d.length === 3) { h = d[0]; m = d.slice(1); }
+  else { h = d.slice(0, 2); m = d.slice(2, 4); }
+  h = +h; m = +m;
+  if (!(h >= 0 && h <= 23 && m >= 0 && m <= 59)) return null;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+tbody.addEventListener('input', e => {
+  const el = e.target;
+  if (el.classList.contains('tm')) {
+    el.value = liveTimes(el.value);
+  } else if (el.classList.contains('dn')) { el.value = el.value.replace(/[^0-9.,]/g, ''); }
+  recalc(); scheduleSave();
+});
+tbody.addEventListener('focusout', e => {
+  const el = e.target;
+  if (!el.classList.contains('tm')) return;
+  const before = el.value, n = normTimes(before);
+  if (n === null) { el.value = ''; el.classList.add('bad'); setTimeout(() => el.classList.remove('bad'), 1500); }
+  else el.value = n;
+  if (el.value !== before) { recalc(); scheduleSave(); }
+});
+document.getElementById('mesic').addEventListener('change', switchMonth);
+document.getElementById('rok').addEventListener('change', switchMonth);
+document.getElementById('smena').addEventListener('change', handleShiftChange);
+['firemniId', 'jmeno', 'heslo'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); handleEnter(); } });
+});
+
+let currentSlug = null; let displayWho = '', leaderView = false;
+let currentKey = null;
+let saveTimer = null;
+const saveStatus = document.getElementById('saveStatus');
+
+function clearAllRowInputs() {
+  tbody.querySelectorAll('input[type="text"], input[type="time"], input[type="number"]').forEach(i => { i.value = ''; });
+  document.querySelectorAll('.bonus-in').forEach(i => { i.value = ''; });
+}
+
+function setInputsEnabled(enabled) {
+  tbody.querySelectorAll('input').forEach(i => { i.disabled = !enabled; });
+  document.querySelectorAll('.bonus-in').forEach(i => { i.disabled = !enabled; });
+  const vacFrom = document.getElementById('vacFrom'), vacTo = document.getElementById('vacTo');
+  if (vacFrom) vacFrom.disabled = !enabled;
+  if (vacTo) vacTo.disabled = !enabled;
+  document.querySelectorAll('.vac-form button').forEach(b => b.disabled = !enabled);
+}
+setInputsEnabled(false);
+
+function showIdError(msg) {
+  const el = document.getElementById('idErrorNote');
+  el.textContent = msg || '';
+}
+
+function showLoggedInBar(id) {
+  document.getElementById('idCard').style.display = 'none';
+  const bar = document.getElementById('idLoggedBar');
+  bar.style.display = 'flex';
+  document.getElementById('loggedWhoText').textContent = 'ID ' + id;
+}
+
+async function handleEnter() {
+  const idVal = document.getElementById('firemniId').value.trim();
+  if (!idVal) { showIdError('Vyplň firemní ID.'); return; }
+  showIdError('');
+
+  const btn = document.getElementById('btnEnter');
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Ověřuji…';
+
+  try {
+    const newSlug = slugify(idVal);
+    const heslo = document.getElementById('heslo').value;
+    let existing;
+    try {
+      existing = await window.dbGetEmployee(newSlug);
+    } catch (err) {
+      showIdError('Nepodařilo se spojit s Firebase (' + (err.code || err.message) + '). Zkontroluj Firestore databázi/pravidla/připojení.');
+      return;
+    }
+
+    let jmenoFinal;
+
+    if (existing) {
+      if (existing.pinHash) {
+        if (!hasCrypto()) {
+          showIdError('Ověření hesla vyžaduje HTTPS. Otevři appku přes nasazenou adresu (ne lokální soubor).');
+          return;
+        }
+        if (!heslo) { showIdError('Tento účet má nastavené heslo - vyplň ho.'); return; }
+        const hash = await sha256Hex(heslo);
+        if (hash !== existing.pinHash) {
+          showIdError('Nesprávné heslo pro toto ID.');
+          document.getElementById('heslo').value = '';
+          return;
+        }
+      }
+      jmenoFinal = existing.jmeno || idVal;
+    } else {
+      const jmenoField = document.getElementById('jmenoField');
+      const jmenoVal = document.getElementById('jmeno').value.trim();
+      if (jmenoField.style.display === 'none') {
+        // první pokus s neznámým ID - teprve teď se odhalí pole na jméno
+        jmenoField.style.display = '';
+        showIdError('Tohle ID ještě neznáme - jsi tu poprvé. Vyplň prosím jméno a klikni na Vstoupit znovu.');
+        document.getElementById('jmeno').focus();
+        return;
+      }
+      if (!jmenoVal) {
+        showIdError('Vyplň prosím jméno.');
+        return;
+      }
+      let pinHash = null;
+      if (heslo) {
+        if (!hasCrypto()) {
+          showIdError('Heslo nejde nastavit bez HTTPS. Buď appku otevři přes nasazenou adresu, nebo pole hesla nech prázdné.');
+          return;
+        }
+        pinHash = await sha256Hex(heslo);
+      }
+      const res = await window.dbUpsertEmployee(newSlug, { jmeno: jmenoVal, id: idVal, pinHash });
+      if (!res.ok) {
+        showIdError('Nepodařilo se založit záznam' + (res.error ? ' (' + res.error + ')' : '') + '. Zkontroluj Firestore pravidla/připojení.');
+        return;
+      }
+      jmenoFinal = jmenoVal;
+    }
+
+    currentSlug = newSlug; leaderView = false; displayWho = 'ID ' + idVal;
+    document.getElementById('smena').value = (existing && existing.smena) || '';
+    document.getElementById('heslo').value = '';
+    document.getElementById('jmeno').value = jmenoFinal;
+    document.getElementById('jmenoField').style.display = 'none';
+    showLoggedInBar(idVal);
+
+    clearAllRowInputs();
+    setInputsEnabled(true);
+    recalc();
+    await loadCurrentMonth();
+    await refreshApprovedVacations();
+    await loadMyVacationRequestsUI();
+    await refreshYearlyStats();
+    rebuildCalendar();
+  } catch (err) {
+    console.error(err);
+    showIdError('Nastala neočekávaná chyba: ' + (err.message || err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+async function switchUser() {
+  if (currentSlug) { clearTimeout(saveTimer); await saveCurrentMonth(); }
+  displayWho = ''; leaderView = false; document.getElementById('btnLeaderBack').style.display = 'none';
+  monthMeta = { stav: 'open' }; setTimeout(() => { document.body.classList.remove('locked'); renderClose(); }, 0);
+  currentSlug = null;
+  currentKey = (parseInt(document.getElementById('rok').value) || 2026) + '-' + (parseInt(document.getElementById('mesic').value) || 1);
+  setInputsEnabled(false);
+  clearAllRowInputs();
+  document.getElementById('firemniId').value = '';
+  document.getElementById('jmeno').value = '';
+  document.getElementById('jmenoField').style.display = 'none';
+  document.getElementById('heslo').value = '';
+  document.getElementById('smena').value = '';
+  document.getElementById('idLoggedBar').style.display = 'none';
+  document.getElementById('idCard').style.display = '';
+  showIdError('');
+  document.getElementById('vacBalanceText').textContent = '—';
+  document.getElementById('sickBalanceText').textContent = '—';
+  document.getElementById('vacMyList').innerHTML = '';
+  approvedVacationDays = new Set();
+  if (saveStatus) saveStatus.textContent = '';
+  rebuildCalendar();
+  document.getElementById('firemniId').focus();
+}
+
+function handleShiftChange() {
+  if (!currentSlug) return;
+  const smena = document.getElementById('smena').value;
+  window.dbUpsertEmployee(currentSlug, { smena });
+}
+
+async function saveCurrentMonth(force) {
+  savePending = false;
+  if (!force && !leaderView && monthMeta.stav && monthMeta.stav !== 'open') return;
+  if (!currentKey || !currentSlug) return;
+  const rows = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    rows.push({
+      day: tr.dataset.day,
+      prichod: tr.querySelector('.prichod').value,
+      odchod: tr.querySelector('.odchod').value,
+      dovHod: tr.querySelector('.dov-hod').value,
+      nvHod: tr.querySelector('.nv-hod').value,
+      lekHod: tr.querySelector('.lek-hod').value,
+      poznamka: tr.querySelector('.poznamka').value
+    });
+  });
+  const bonus = [...document.querySelectorAll('.bonus-in')].map(i => i.value);
+  const data = { rows, bonus, updatedAt: new Date().toISOString() };
+  if (monthMeta.stav && monthMeta.stav !== 'open') { data.stav = monthMeta.stav; data.stavAt = monthMeta.stavAt || null; data.stavBy = monthMeta.stavBy || null; }
+  const res = window.dbSaveMonth ? await window.dbSaveMonth(currentSlug, currentKey, data) : { ok: false };
+  if (saveStatus) {
+    saveStatus.textContent = res.ok
+      ? 'Uloženo ' + new Date().toLocaleTimeString('cs-CZ')
+      : 'Uložení se NEZDAŘILO' + (res.error ? ' (' + res.error + ')' : '') + ' - zkontroluj Firestore pravidla / připojení';
+    saveStatus.style.color = res.ok ? '#666' : '#b91c1c';
+    saveStatus.style.fontWeight = res.ok ? 'normal' : '700';
+  }
+  if (res.ok) { if (leaderView) await leaderLogMonth(data); refreshYearlyStats(); }
+}
+
+function scheduleSave() {
+  if (!currentSlug) { if (saveStatus) saveStatus.textContent = 'Nejdřív se identifikuj firemním ID nahoře'; return; }
+  clearTimeout(saveTimer);
+  if (saveStatus) { saveStatus.textContent = 'Ukládám…'; saveStatus.style.color = '#666'; saveStatus.style.fontWeight = 'normal'; }
+  savePending = true;
+  saveTimer = setTimeout(saveCurrentMonth, 600);
+}
+
+async function loadCurrentMonth() {
+  if (!currentKey || !currentSlug) return;
+  const data = window.dbLoadMonth ? await window.dbLoadMonth(currentSlug, currentKey) : null;
+  if (leaderView) { const bk = currentSlug + '|' + currentKey; if (!(bk in SHEETBASE)) SHEETBASE[bk] = data || null; }
+  monthMeta = { stav: (data && data.stav) || 'open', stavAt: (data && data.stavAt) || null, stavBy: (data && data.stavBy) || null };
+  if (data) {
+    (data.rows || []).forEach(r => {
+      const tr = tbody.querySelector('tr[data-day="' + r.day + '"]');
+      if (!tr) return;
+      tr.querySelector('.prichod').value = r.prichod || '';
+      tr.querySelector('.odchod').value = r.odchod || '';
+      tr.querySelector('.dov-hod').value = r.dovHod || '';
+      tr.querySelector('.nv-hod').value = r.nvHod || '';
+      tr.querySelector('.lek-hod').value = r.lekHod || '';
+      tr.querySelector('.poznamka').value = r.poznamka || '';
+    });
+    const bi = document.querySelectorAll('.bonus-in');
+    (data.bonus || []).forEach((v, i) => { if (bi[i]) bi[i].value = v || ''; });
+    if (saveStatus) saveStatus.textContent = 'Načteno z Firebase';
+  } else {
+    if (saveStatus) saveStatus.textContent = 'Nový záznam pro tento měsíc';
+  }
+  recalc();
+  applyLock();
+}
+
+async function switchMonth() {
+  if (currentSlug) await saveCurrentMonth();
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const month = parseInt(document.getElementById('mesic').value) || 1;
+  currentKey = year + '-' + month;
+  clearAllRowInputs();
+  rebuildCalendar();
+  if (currentSlug) { await loadCurrentMonth(); await refreshYearlyStats(); }
+  else if (saveStatus) { saveStatus.textContent = 'Nejdřív se identifikuj firemním ID nahoře'; }
+}
+
+function initApp() {
+  const now = new Date();
+  document.getElementById('mesic').value = now.getMonth() + 1;
+  document.getElementById('rok').value = now.getFullYear();
+  rebuildCalendar();
+  currentKey = (parseInt(document.getElementById('rok').value) || 2026) + '-' + (parseInt(document.getElementById('mesic').value) || 1);
+  document.getElementById('firemniId').focus();
+}
+document.addEventListener('DOMContentLoaded', initApp);
+if (document.readyState !== 'loading') initApp();
+
+function resetTable() {
+  if (!leaderView && monthMeta.stav && monthMeta.stav !== 'open') { toast('Měsíc je odeslaný nebo uzavřený - nejde ho vymazat.'); return; }
+  if (!currentSlug) return;
+  if (!confirm('Opravdu vymazat všechny zadané hodnoty pro tento měsíc?')) return;
+  clearAllRowInputs();
+  recalc();
+  if (currentKey && window.dbDeleteMonth) window.dbDeleteMonth(currentSlug, currentKey).then(() => { if (leaderView) leaderLogMonth(null); }).catch(() => {});
+  if (saveStatus) saveStatus.textContent = 'Vymazáno';
+}
+
+function computeMonthTotals(year, month, data) {
+  const rowsByDay = {};
+  (data && data.rows || []).forEach(r => { rowsByDay[r.day] = r; });
+  const numDays = daysInMonth(year, month);
+  const holidays = getCzechHolidays(year);
+  let totalSmena = 0, totalPre = 0, totalDov = 0, totalNv = 0, totalLek = 0;
+  for (let day = 1; day <= numDays; day++) {
+    const r = rowsByDay[day] || {};
+    const dateObj = new Date(year, month - 1, day);
+    const dow = dateObj.getDay();
+    const isWeekend = (dow === 0 || dow === 6);
+    const isHoliday = holidays.some(h => h.getFullYear() === year && h.getMonth() === month - 1 && h.getDate() === day);
+    const { worked, overtime } = computeDay(r.prichod, r.odchod, isHoliday, isWeekend);
+    totalSmena += worked; totalPre += overtime;
+    totalDov += num(r.dovHod) || 0;
+    totalNv += num(r.nvHod) || 0;
+    totalLek += num(r.lekHod) || 0;
+  }
+  return { totalSmena, totalPre, totalDov, totalNv, totalLek };
+}
+
+async function refreshYearlyStats() {
+  if (!currentSlug) return;
+  const year = parseInt(document.getElementById('rok').value) || 2026;
+  const currentMonth = parseInt(document.getElementById('mesic').value) || 1;
+  let usedDov = 0, usedLek = 0;
+  for (let m = 1; m <= 12; m++) {
+    if (m === currentMonth) {
+      tbody.querySelectorAll('.dov-hod').forEach(inp => { usedDov += num(inp.value) || 0; });
+      tbody.querySelectorAll('.lek-hod').forEach(inp => { usedLek += num(inp.value) || 0; });
+    } else {
+      const data = await window.dbLoadMonth(currentSlug, year + '-' + m);
+      (data && data.rows || []).forEach(r => {
+        usedDov += num(r.dovHod) || 0;
+        usedLek += num(r.lekHod) || 0;
+      });
+    }
+  }
+  const remaining = Math.max(VACATION_ALLOWANCE - usedDov, 0);
+  document.getElementById('vacBalanceText').textContent =
+    'Vyčerpáno ' + usedDov.toFixed(1) + ' h (' + (usedDov / VACATION_HOURS_PER_DAY).toFixed(1) + ' dní) · zbývá ' +
+    remaining.toFixed(1) + ' h (' + (remaining / VACATION_HOURS_PER_DAY).toFixed(1) + ' dní)';
+  document.getElementById('sickBalanceText').textContent = usedLek.toFixed(1) + ' h za rok ' + year;
+}
+
+function vacStatusLabel(status) {
+  return { pending: 'Čeká na schválení', approved: 'Schváleno', rejected: 'Zamítnuto', cancelled: 'Zrušeno' }[status] || status;
+}
+function vacStatusClass(status) {
+  return { pending: 'vac-pending', approved: 'vac-approved', rejected: 'vac-rejected', cancelled: 'vac-cancelled' }[status] || '';
+}
+
+function expandApprovedDays(requests) {
+  const set = new Set();
+  requests.filter(r => r.status === 'approved').forEach(r => {
+    if (!r.dateFrom || !r.dateTo) return;
+    let d = new Date(r.dateFrom + 'T00:00:00');
+    const end = new Date(r.dateTo + 'T00:00:00');
+    let guard = 0;
+    while (d <= end && guard < 800) {
+      set.add(dateStr(d.getFullYear(), d.getMonth() + 1, d.getDate()));
+      d.setDate(d.getDate() + 1);
+      guard++;
+    }
+  });
+  return set;
+}
+
+async function refreshApprovedVacations() {
+  if (!currentSlug) { approvedVacationDays = new Set(); return; }
+  const list = await window.dbListVacationRequests(currentSlug);
+  approvedVacationDays = expandApprovedDays(list);
+}
+
+function renderMyVacationList(list) {
+  const el = document.getElementById('vacMyList');
+  if (!list.length) { el.innerHTML = '<div class="mgmt-note">Zatím žádné žádosti o dovolenou.</div>'; return; }
+  const sorted = [...list].sort((a, b) => (a.dateFrom || '').localeCompare(b.dateFrom || ''));
+  el.innerHTML = sorted.map(r => (
+    '<div class="vac-item"><span>' + r.dateFrom + ' → ' + r.dateTo + '</span>' +
+    '<span class="vac-badge ' + vacStatusClass(r.status) + '">' + vacStatusLabel(r.status) + '</span>' +
+    (r.status === 'pending' ? '<button class="vac-cancel-btn" onclick="cancelVacationRequest(\'' + r.id + '\')">Zrušit</button>' : '') +
+    '</div>'
+  )).join('');
+}
+
+async function loadMyVacationRequestsUI() {
+  if (!currentSlug) return;
+  const list = await window.dbListVacationRequests(currentSlug);
+  renderMyVacationList(list);
+}
+
+async function submitVacationRequest() {
+  if (!currentSlug) { alert('Nejdřív se identifikuj firemním ID.'); return; }
+  const from = document.getElementById('vacFrom').value;
+  const to = document.getElementById('vacTo').value;
+  if (!from || !to) { alert('Vyplň obě data.'); return; }
+  if (to < from) { alert('Datum "Do" musí být stejné nebo pozdější než "Od".'); return; }
+  const jmeno = document.getElementById('jmeno').value.trim();
+  const res = await window.dbAddVacationRequest(currentSlug, jmeno, from, to);
+  if (res.ok) {
+    document.getElementById('vacFrom').value = '';
+    document.getElementById('vacTo').value = '';
+    await loadMyVacationRequestsUI();
+  } else {
+    alert('Nepodařilo se odeslat žádost' + (res.error ? ' (' + res.error + ')' : '') + '.');
+  }
+}
+
+async function cancelVacationRequest(id) {
+  if (!currentSlug) return;
+  await window.dbUpdateVacationRequest(currentSlug, id, { status: 'cancelled', decidedAt: new Date().toISOString() });
+  await loadMyVacationRequestsUI();
+  await refreshApprovedVacations();
+  rebuildCalendar();
+}
+
+async function manualRefreshVacations() {
+  await refreshApprovedVacations();
+  await loadMyVacationRequestsUI();
+  await refreshYearlyStats();
+  rebuildCalendar();
+}
+
+function getVisibleSheet() {
+  const sheets = document.querySelectorAll('.sheet');
+  for (const el of sheets) if (el.offsetParent !== null) return el;
+  return sheets[0] || null;
+}
+function fitPrintToPage() {
+  const sheet = getVisibleSheet();
+  const wrap = document.getElementById('printWrap');
+  if (!sheet || !wrap) return;
+  sheet.style.transform = 'none'; wrap.style.width = ''; wrap.style.height = '';
+  sheet.style.width = '';
+  const naturalW = sheet.scrollWidth, naturalH = sheet.scrollHeight;
+  sheet.style.width = naturalW + 'px';
+  const pxPerMm = 96 / 25.4, pageWmm = 297, pageHmm = 210, marginMm = 8;
+  const availW = (pageWmm - marginMm * 2) * pxPerMm, availH = (pageHmm - marginMm * 2) * pxPerMm;
+  const scale = Math.min(1, availW / naturalW);
+  sheet.style.transformOrigin = 'top left';
+  sheet.style.transform = 'scale(' + scale + ')';
+  wrap.style.width = (naturalW * scale) + 'px';
+}
+function resetPrintScale() {
+  const sh0 = getVisibleSheet(); if (sh0) sh0.style.width = '';
+  const sheet = getVisibleSheet();
+  const wrap = document.getElementById('printWrap');
+  if (!sheet || !wrap) return;
+  sheet.style.transform = 'none'; wrap.style.width = ''; wrap.style.height = '';
+}
+function preparePrint() { fitPrintToPage(); setTimeout(() => window.print(), 50); }
+window.addEventListener('beforeprint', fitPrintToPage);
+window.addEventListener('afterprint', resetPrintScale);
+
+// ===================== Správa pro vedoucí (2 vedoucí, skupiny, historie změn) =====================
+const gid = id => document.getElementById(id);
+const SLOT = { v1: '_vedouci', v2: '_vedouci2' };
+let manageVisible = false, ME = null, LD = { v1: null, v2: null };
+let EMPS = [], MC = {}, RQ = {}, LOGS = [], lastRows = [], SEL = new Set(), openSlug = null, curTab = 'emp';
+let PER = { y: 2026, m: 1 }, FIL = { q: '', grp: 'all', shift: '', st: '', sort: 'jmeno', dir: 1, group: false };
+let SHEETBASE = {}, SHEETLOG = {};
+const NK = ['w', 'o', 'd', 'n', 'l', 'cnt'];
+const lname = k => (LD[k] && LD[k].jmeno) || (k === 'v1' ? 'Vedoucí 1' : 'Vedoucí 2');
+const strip = e => { const { slug, t, ...r } = e; return r; };
+const z = v => (v ? fmtT(v) : '–');
+const mkey = () => PER.y + '-' + PER.m;
+const fmtD = s => { const p = String(s || '').split('-'); return p.length === 3 ? (+p[2]) + '. ' + (+p[1]) + '. ' + p[0] : (s || ''); };
+function fmtT(v) { return String(+v.toFixed(1)).replace('.', ','); }
+function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// ---------- okno (modal) ----------
+function merr(t) { gid('mErr').textContent = t; return false; }
+function openModal(title, html, okLabel, okFn, cancelFn) {
+  gid('mTitle').textContent = title; gid('mBody').innerHTML = html; gid('mErr').textContent = ''; gid('mOk').textContent = okLabel;
+  gid('modalBg').style.display = 'flex';
+  const close = () => { gid('modalBg').style.display = 'none'; };
+  gid('mOk').onclick = async () => {
+    gid('mOk').disabled = true;
+    try { if (await okFn()) close(); } catch (err) { console.error(err); merr('Chyba: ' + (err.message || err)); }
+    finally { gid('mOk').disabled = false; }
+  };
+  gid('mCancel').onclick = () => { close(); if (cancelFn) cancelFn(); };
+  const f = gid('mBody').querySelector('input,select'); if (f) f.focus();
+}
+gid('modalBg').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && ev.target.tagName === 'INPUT' && ev.target.type !== 'checkbox') gid('mOk').click();
+  if (ev.key === 'Escape') gid('mCancel').click();
+});
+
+// ---------- přihlášení vedoucího (2 vedoucí) ----------
+function showManage(on) {
+  manageVisible = on;
+  gid('mainSheet').style.display = on ? 'none' : '';
+  gid('manageSheet').style.display = on ? '' : 'none';
+  gid('mainControls').style.display = on ? 'none' : '';
+  gid('btnToggleManage').textContent = on ? 'Zpět na docházku' : 'Správa pro vedoucí';
+}
+async function toggleManage() {
+  if (manageVisible) { showManage(false); return; }
+  if (!(await leaderAuth())) return;
+  showManage(true); await mgmtInit();
+}
+async function loadLeaders() {
+  try { for (const k of ['v1', 'v2']) LD[k] = await window.dbGetEmployee(SLOT[k]); return true; } catch (e) { return false; }
+}
+async function leaderAuth() {
+  if (ME) return true;
+  if (!hasCrypto()) { alert('Správa vyžaduje HTTPS (nasazenou adresu).'); return false; }
+  if (!(await loadLeaders())) { alert('Nepodařilo se spojit s Firebase.'); return false; }
+  try { const s = sessionStorage.getItem('ldr'); if (s && LD[s] && LD[s].pinHash) { ME = { slot: s, jmeno: lname(s) }; return true; } } catch (e) {}
+  return new Promise(resolve => {
+    const opt = k => `<option value="${k}">${esc(lname(k))}${LD[k] && LD[k].pinHash ? '' : ' (nenastaveno)'}</option>`;
+    openModal('Přihlášení vedoucího', `<label>Vedoucí</label><select id="lgW">${opt('v1')}${opt('v2')}</select><div id="lgN"></div><label>Heslo</label><input type="password" id="lgP">`, 'Přihlásit', async () => {
+      const k = gid('lgW').value, pw = gid('lgP').value;
+      if (!pw) return merr('Zadej heslo.');
+      const h = await sha256Hex(pw);
+      if (LD[k] && LD[k].pinHash) { if (h !== LD[k].pinHash) return merr('Nesprávné heslo.'); }
+      else {
+        const nm = ((gid('lgJ') || {}).value || '').trim() || lname(k);
+        const r = await window.dbUpsertEmployee(SLOT[k], { jmeno: nm, pinHash: h });
+        if (!r.ok) return merr('Uložení hesla selhalo' + (r.error ? ' (' + r.error + ')' : '') + '.');
+        LD[k] = { jmeno: nm, pinHash: h };
+      }
+      ME = { slot: k, jmeno: lname(k) };
+      try { sessionStorage.setItem('ldr', k); } catch (e) {}
+      resolve(true); return true;
+    }, () => resolve(false));
+    const upd = () => { const k = gid('lgW').value; gid('lgN').innerHTML = LD[k] && LD[k].pinHash ? '' : '<label>Tvoje jméno (zobrazí se u skupiny a v historii)</label><input type="text" id="lgJ"><div class="mgmt-note">Poprvé: zvol si heslo níže.</div>'; };
+    gid('lgW').onchange = upd; upd();
+  });
+}
+function leaderLogout() { ME = null; LD = { v1: null, v2: null }; try { sessionStorage.removeItem('ldr'); } catch (e) {} showManage(false); }
+function myAccount() {
+  openModal('Můj účet', `<label>Jméno</label><input type="text" id="acJ" value="${esc(ME.jmeno)}"><label>Nové heslo (prázdné = beze změny)</label><input type="password" id="acP">`, 'Uložit', async () => {
+    const j = gid('acJ').value.trim(), p = gid('acP').value;
+    if (!j) return merr('Vyplň jméno.');
+    const f = { jmeno: j }; if (p) f.pinHash = await sha256Hex(p);
+    const r = await window.dbUpsertEmployee(SLOT[ME.slot], f); if (!r.ok) return merr('Uložení selhalo.');
+    LD[ME.slot] = { ...LD[ME.slot], ...f }; ME.jmeno = j; gid('mgWho').textContent = 'Přihlášen: ' + j; fillGrp(); renderEmp(); return true;
+  });
+}
+
+// ---------- načtení dat a filtry ----------
+async function mgmtInit() {
+  gid('mgWho').textContent = 'Přihlášen: ' + ME.jmeno;
+  const gm = gid('gM'); if (!gm.options.length) for (let i = 1; i <= 12; i++) gm.add(new Option(i, i));
+  PER.y = parseInt(gid('rok').value) || new Date().getFullYear(); PER.m = parseInt(gid('mesic').value) || 1;
+  gm.value = PER.m; gid('gY').value = PER.y; openSlug = null; SEL.clear(); setTab('emp');
+  await loadEmps(true);
+  FIL.grp = EMPS.some(e => e.vedouci === ME.slot) ? 'mine' : 'all';
+  fillGrp(); renderEmp(); loadVac();
+}
+function fillGrp() {
+  const n = f => EMPS.filter(f).length, s = gid('gG');
+  s.innerHTML = `<option value="mine">Moje skupina - ${esc(ME.jmeno)} (${n(e => e.vedouci === ME.slot)})</option><option value="all">Všichni (${EMPS.length})</option><option value="v1">Skupina: ${esc(lname('v1'))} (${n(e => e.vedouci === 'v1')})</option><option value="v2">Skupina: ${esc(lname('v2'))} (${n(e => e.vedouci === 'v2')})</option><option value="none">Bez skupiny (${n(e => !e.vedouci)})</option>`;
+  s.value = FIL.grp;
+}
+async function loadEmps(force) {
+  if (force) { MC = {}; RQ = {}; }
+  EMPS = await window.dbListEmployees();
+  await loadMonths();
+}
+async function loadMonths() {
+  const key = mkey();
+  await Promise.all(EMPS.map(async e => { const k = e.slug + '|' + key; if (!(k in MC)) MC[k] = await window.dbLoadMonth(e.slug, key); }));
+}
+async function setPer(y, m) {
+  PER.y = y; PER.m = m; gid('gM').value = m; gid('gY').value = y;
+  await loadMonths(); renderEmp(); if (openSlug) yearStrip(openSlug);
+}
+function shiftPer(d) { let m = PER.m + d, y = PER.y; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } return setPer(y, m); }
+function refilter() { SEL.clear(); renderEmp(); if (curTab === 'vac') renderVac(); }
+
+function mDetail(y, m, data) {
+  const rb = {}; ((data && data.rows) || []).forEach(r => { rb[r.day] = r; });
+  const hol = getCzechHolidays(y), n = daysInMonth(y, m), days = [], t = { w: 0, o: 0, d: 0, n: 0, l: 0, cnt: 0 };
+  for (let d = 1; d <= n; d++) {
+    const r = rb[d] || {}, dow = new Date(y, m - 1, d).getDay(), we = dow === 0 || dow === 6;
+    const h = hol.some(x => x.getFullYear() === y && x.getMonth() === m - 1 && x.getDate() === d);
+    const c = computeDay(r.prichod, r.odchod, h, we);
+    const dv = num(r.dovHod) || 0, nv = num(r.nvHod) || 0, lk = num(r.lekHod) || 0;
+    t.w += c.worked; t.o += c.overtime; t.d += dv; t.n += nv; t.l += lk; if (c.worked > 0) t.cnt++;
+    if (c.worked || dv || nv || lk || r.poznamka) days.push({ d, dow, r, w: c.worked, o: c.overtime, dv, nv, lk, we, h });
+  }
+  return { days, t };
+}
+function getRows() {
+  const key = mkey(), q = FIL.q.trim().toLowerCase();
+  const a = EMPS.filter(e => {
+    const g = e.vedouci || '';
+    if (FIL.grp === 'mine' && g !== ME.slot) return false;
+    if ((FIL.grp === 'v1' || FIL.grp === 'v2') && g !== FIL.grp) return false;
+    if (FIL.grp === 'none' && g) return false;
+    if (FIL.shift && (e.smena || '-') !== FIL.shift) return false;
+    if (FIL.st && stOf(e) !== FIL.st) return false;
+    return !q || ((e.jmeno || '') + ' ' + (e.id || '')).toLowerCase().includes(q);
+  });
+  a.forEach(e => { e.t = mDetail(PER.y, PER.m, MC[e.slug + '|' + key]).t; });
+  const val = e => FIL.sort === 'jmeno' ? (e.jmeno || '').toLowerCase() : FIL.sort === 'id' ? String(e.id || '') : FIL.sort === 'vedouci' ? (e.vedouci ? lname(e.vedouci).toLowerCase() : '~') : FIL.sort === 'smena' ? (e.smena || '~') : e.t[FIL.sort];
+  const rk = e => e.vedouci === 'v1' ? 0 : e.vedouci === 'v2' ? 1 : 2;
+  a.sort((x, y) => {
+    if (FIL.group && rk(x) !== rk(y)) return rk(x) - rk(y);
+    const p = val(x), q2 = val(y);
+    return (typeof p === 'number' ? p - q2 : String(p).localeCompare(String(q2), 'cs', { numeric: true })) * FIL.dir;
+  });
+  return a;
+}
+function sortBy(k) { if (FIL.sort === k) FIL.dir *= -1; else { FIL.sort = k; FIL.dir = NK.includes(k) ? -1 : 1; } renderEmp(); }
+function selTog(slug, on) { if (on) SEL.add(slug); else SEL.delete(slug); renderEmp(); }
+function selAll(on) { lastRows.forEach(e => { if (on) SEL.add(e.slug); else SEL.delete(e.slug); }); renderEmp(); }
+
+// ---------- tabulka zaměstnanců ----------
+function trHtml(e) {
+  const t = e.t, o = openSlug === e.slug;
+  return `<tr class="${o ? 'open' : ''}"><td><input type="checkbox" ${SEL.has(e.slug) ? 'checked' : ''} onchange="selTog('${e.slug}',this.checked)"></td>` +
+    `<td><a href="#" onclick="openDet('${e.slug}');return false">${esc(e.jmeno || e.slug)}</a></td><td>${esc(e.id || '')}</td><td>${e.vedouci ? esc(lname(e.vedouci)) : '—'}</td><td>${esc(e.smena || '—')}</td>` +
+    `<td class="num">${z(t.w)}</td><td class="num">${z(t.o)}</td><td class="num">${z(t.d)}</td><td class="num">${z(t.n)}</td><td class="num">${z(t.l)}</td><td class="num">${t.cnt || '–'}</td>` +
+    `<td>${stBadge(e)}</td><td class="act"><button onclick="leaderOpenSheet('${e.slug}')">Docházka</button><button onclick="empDialog('${e.slug}')">Upravit</button><button class="del" onclick="delEmp('${e.slug}')">Smazat</button></td></tr>` +
+    (o ? `<tr class="det"><td colspan="13">${detHtml(e)}</td></tr>` : '');
+}
+function detHtml(e) {
+  const d = mDetail(PER.y, PER.m, MC[e.slug + '|' + mkey()]), dn = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+  const rows = d.days.map(x => `<tr class="${x.h ? 'ho' : x.we ? 'we' : ''}"><td>${x.d}. ${dn[x.dow]}</td><td>${esc(x.r.prichod || '')}</td><td>${esc(x.r.odchod || '')}</td><td>${z(x.w)}</td><td>${z(x.o)}</td><td>${z(x.dv)}</td><td>${z(x.nv)}</td><td>${z(x.lk)}</td><td style="text-align:left">${esc(x.r.poznamka || '')}</td></tr>`).join('');
+  const vac = (RQ[e.slug] || []).filter(r => r.status !== 'cancelled').map(r => `${fmtD(r.dateFrom)}–${fmtD(r.dateTo)} (${vacStatusLabel(r.status)})`).join(' · ');
+  return `<b>${esc(e.jmeno)}</b> · období ${PER.m}/${PER.y} <button onclick="vacAdd('${e.slug}')">+ Dovolená</button> ${stBtns(e)}` +
+    `<table class="dtab"><tr><th>Den</th><th>Příchod</th><th>Odchod</th><th>Hodin</th><th>Přesčas</th><th>Dov.</th><th>NV</th><th>Lék.</th><th>Poznámka</th></tr>${rows || '<tr><td colspan="9">Za toto období nejsou žádné záznamy.</td></tr>'}</table>` +
+    (vac ? `<div class="mgmt-note">Dovolená: ${vac}</div>` : '') + '<div class="ys" id="ys"></div>';
+}
+async function openDet(slug) { openSlug = openSlug === slug ? null : slug; renderEmp(); if (openSlug) yearStrip(openSlug); }
+async function yearStrip(slug) {
+  let h = '';
+  for (let m = 1; m <= 12; m++) {
+    const k = slug + '|' + PER.y + '-' + m; if (!(k in MC)) MC[k] = await window.dbLoadMonth(slug, PER.y + '-' + m);
+    const t = mDetail(PER.y, m, MC[k]).t;
+    h += `<div class="${m === PER.m ? 'on' : ''}" onclick="setPer(${PER.y},${m})"><b>${m}/${PER.y}</b><br>${z(t.w)} h · př. ${z(t.o)}</div>`;
+  }
+  if (openSlug === slug && gid('ys')) gid('ys').innerHTML = h;
+}
+function renderEmp() {
+  const rows = getRows(); lastRows = rows;
+  gid('empCnt').textContent = rows.filter(e => stOf(e) === 'sent').length || '';
+  gid('mgPh').textContent = 'Přehled docházky ' + PER.m + '/' + PER.y + ' - ' + ((gid('gG').selectedOptions[0] || {}).textContent || '');
+  const zero = () => ({ w: 0, o: 0, d: 0, n: 0, l: 0, cnt: 0 });
+  const add = (s, e) => { NK.forEach(k => { s[k] += e.t[k]; }); return s; };
+  const sums = t => NK.map(k => `<td class="num">${k === 'cnt' ? (t[k] || '–') : z(t[k])}</td>`).join('');
+  const th = (k, lab, num) => `<th ${num ? 'class="num"' : ''} onclick="sortBy('${k}')">${lab}${FIL.sort === k ? (FIL.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  let h = `<table class="emp-table"><thead><tr><th><input type="checkbox" onchange="selAll(this.checked)"></th>${th('jmeno', 'Jméno')}${th('id', 'ID')}${th('vedouci', 'Skupina')}${th('smena', 'Směna')}${th('w', 'Odpracováno', 1)}${th('o', 'Přesčas', 1)}${th('d', 'Dovolená', 1)}${th('n', 'NV', 1)}${th('l', 'Lékař/nemoc', 1)}${th('cnt', 'Dní', 1)}<th>Uzávěrka</th><th></th></tr></thead><tbody>`;
+  let last = null;
+  rows.forEach(e => {
+    if (FIL.group && (e.vedouci || '') !== last) {
+      last = e.vedouci || '';
+      const gr = rows.filter(x => (x.vedouci || '') === last);
+      h += `<tr class="gh"><td></td><td colspan="4">${last ? esc(lname(last)) : 'Bez skupiny'} (${gr.length})</td>${sums(gr.reduce(add, zero()))}<td></td><td></td></tr>`;
+    }
+    h += trHtml(e);
+  });
+  h += rows.length ? `<tr class="tot"><td></td><td colspan="4">Celkem (${rows.length})</td>${sums(rows.reduce(add, zero()))}<td></td><td></td></tr>` : '<tr><td colspan="13" class="mgmt-note" style="padding:14px">Nikdo neodpovídá filtru. Zkus skupinu „Všichni“ nebo přidej zaměstnance.</td></tr>';
+  gid('empWrap').innerHTML = h + '</tbody></table>';
+  gid('mgBulk').innerHTML = SEL.size ? `<div class="bulk">Vybráno: <b>${SEL.size}</b> <select id="bkG"><option value="v1">${esc(lname('v1'))}</option><option value="v2">${esc(lname('v2'))}</option><option value="">Bez skupiny</option></select><button class="pri" onclick="bulkAssign()">Přiřadit do skupiny</button><button onclick="setStav([...SEL],'ok')">Schválit uzávěrku</button><button onclick="setStav([...SEL],'open')">Vrátit k úpravě</button><button onclick="SEL.clear();renderEmp()">Zrušit výběr</button></div>` : '';
+}
+function exportCSV() {
+  const q = c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"', n = x => x.toFixed(1).replace('.', ',');
+  const lines = [['Jméno', 'ID', 'Skupina', 'Směna', 'Odpracováno', 'Přesčas', 'Dovolená', 'NV', 'Lékař/nemoc', 'Dní', 'Uzávěrka'], ...lastRows.map(e => [e.jmeno, e.id, e.vedouci ? lname(e.vedouci) : '', e.smena, n(e.t.w), n(e.t.o), n(e.t.d), n(e.t.n), n(e.t.l), e.t.cnt, stLabel(stOf(e))])];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.map(r => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'dochazka-' + PER.y + '-' + PER.m + '.csv'; a.click();
+}
+
+// ---------- změny + historie (vše jde vrátit zpět) ----------
+async function applyOps(ops, st) {
+  for (const o of (st === 'before' ? [...ops].reverse() : ops)) {
+    const v = o[st]; let ok;
+    if (o.t === 'emp') ok = v === null ? await window.dbDeleteEmployee(o.slug) : (await window.dbSetEmployee(o.slug, v)).ok;
+    else if (o.t === 'month') ok = v === null ? await window.dbDeleteMonth(o.slug, o.key) : (await window.dbSaveMonth(o.slug, o.key, v)).ok;
+    else ok = v === null ? await window.dbDeleteVacationRequest(o.slug, o.id) : await window.dbSetVacationRequest(o.slug, o.id, v);
+    if (!ok) return false;
+  }
+  return true;
+}
+async function commit(label, ops) {
+  const ent = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: Date.now(), by: ME ? ME.jmeno : '?', label, ops, reverted: false };
+  const ok = await applyOps(ops, 'after');
+  await window.dbSaveMonth('_log', ent.id, ent);
+  LOGS.unshift(ent);
+  if (!ok) alert('Změnu se nepodařilo dokončit celou. Zkontroluj výsledek - v Historii změn ji jde vrátit zpět.'); else toast(label, ent.id);
+  await refreshAll();
+  return ok;
+}
+async function refreshAll() {
+  SEL.clear(); await loadEmps(true); fillGrp(); renderEmp(); await loadVac();
+  if (curTab === 'log') await loadLog();
+  if (openSlug) yearStrip(openSlug);
+}
+async function loadLog() {
+  const m = await window.dbListMonths('_log');
+  LOGS = Object.values(m).sort((a, b) => b.ts - a.ts);
+  LOGS.slice(100).forEach(x => window.dbDeleteMonth('_log', x.id));
+  LOGS = LOGS.slice(0, 100); renderLog();
+}
+function renderLog() {
+  gid('tabLog').innerHTML = '<div class="mgmt-note">Každá změna ve správě i úprava docházky vedoucím se tu zapisuje (posledních 100). „Vrátit zpět“ obnoví stav před změnou - novější úpravy téhož záznamu se tím přepíšou.</div>' +
+    (LOGS.length ? LOGS.map(x => `<div class="vrow"><span><b>${esc(x.label)}</b><br><span class="mgmt-note">${new Date(x.ts).toLocaleString('cs-CZ')} · ${esc(x.by)} · ${x.ops.length} ${x.ops.length === 1 ? 'položka' : 'položek'}${x.reverted ? ' · <b>VRÁCENO</b>' : ''}</span></span><button ${x.reverted ? '' : 'class="pri"'} onclick="undoEntry('${x.id}')">${x.reverted ? 'Provést znovu' : '↶ Vrátit zpět'}</button></div>`).join('') : '<div class="mgmt-note">Zatím žádné změny.</div>');
+}
+async function undoEntry(id, quiet) {
+  const x = LOGS.find(l => l.id === id); if (!x) return;
+  if (!quiet && !confirm((x.reverted ? 'Provést znovu: ' : 'Vrátit zpět: ') + x.label + '?')) return;
+  const redo = x.reverted, ok = await applyOps(x.ops, redo ? 'after' : 'before');
+  x.reverted = !redo; await window.dbSaveMonth('_log', x.id, x);
+  if (!ok) alert('Vrácení se nepodařilo dokončit celé - zkontroluj výsledek.');
+  await refreshAll();
+}
+async function undoLast() {
+  await loadLog(); const x = LOGS.find(l => !l.reverted);
+  if (!x) { alert('Není co vracet.'); return; }
+  if (confirm('Vrátit poslední změnu?\n\n' + x.label)) await undoEntry(x.id, true);
+}
+function setTab(t) {
+  curTab = t;
+  document.querySelectorAll('.mg-tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  gid('tabEmp').style.display = t === 'emp' ? '' : 'none'; gid('tabVac').style.display = t === 'vac' ? '' : 'none'; gid('tabLog').style.display = t === 'log' ? '' : 'none';
+  gid('mgBar').style.display = t === 'log' ? 'none' : '';
+  if (t === 'vac') renderVac(); if (t === 'log') loadLog();
+}
+
+// ---------- zaměstnanci: přidat / upravit / smazat / hromadně ----------
+function grpOpts(sel) { return ['', 'v1', 'v2'].map(k => `<option value="${k}" ${k === (sel || '') ? 'selected' : ''}>${k ? esc(lname(k)) : 'Bez skupiny'}</option>`).join(''); }
+function empDialog(slug) {
+  const e = slug ? EMPS.find(x => x.slug === slug) : null;
+  const sOpt = ['', 'B', 'C', 'D'].map(s => `<option value="${s}" ${((e && e.smena) || '') === s ? 'selected' : ''}>${s || 'Bez směny'}</option>`).join('');
+  openModal(e ? 'Upravit zaměstnance' : 'Přidat zaměstnance', `<label>Jméno</label><input type="text" id="efJ" value="${esc(e ? e.jmeno : '')}"><label>Firemní ID</label><input type="text" id="efI" value="${esc(e ? e.id : '')}">${e ? '<div class="mgmt-note">Změna ID přesune i veškerou docházku a žádosti.</div>' : ''}<label>Skupina (vedoucí)</label><select id="efV">${grpOpts(e ? e.vedouci : ME.slot)}</select><label>Směna</label><select id="efS">${sOpt}</select><label>${e ? 'Nové heslo (prázdné = beze změny)' : 'Heslo (nepovinné)'}</label><input type="password" id="efP">${e ? '<label><input type="checkbox" id="efX"> Zrušit heslo</label>' : ''}`, 'Uložit', async () => {
+    const j = gid('efJ').value.trim(), idv = gid('efI').value.trim(), ns = slugify(idv);
+    if (!j || !idv || !ns) return merr('Vyplň jméno a platné firemní ID.');
+    const p = gid('efP').value, nd = { ...(e ? strip(e) : {}), jmeno: j, id: idv, smena: gid('efS').value, vedouci: gid('efV').value, updatedAt: new Date().toISOString() };
+    if (p) { if (!hasCrypto()) return merr('Heslo vyžaduje HTTPS.'); nd.pinHash = await sha256Hex(p); } else if (!e) nd.pinHash = null;
+    if (gid('efX') && gid('efX').checked) nd.pinHash = null;
+    if ((!e || ns !== e.slug) && await window.dbGetEmployee(ns)) return merr('Zaměstnanec s tímto ID už existuje.');
+    const ops = [];
+    if (!e) ops.push({ t: 'emp', slug: ns, before: null, after: nd });
+    else if (ns === e.slug) ops.push({ t: 'emp', slug: ns, before: strip(e), after: nd });
+    else {
+      const [ms, rq] = await Promise.all([window.dbListMonths(e.slug), window.dbListVacationRequests(e.slug)]);
+      ops.push({ t: 'emp', slug: ns, before: null, after: nd });
+      Object.entries(ms).forEach(([k, v]) => { ops.push({ t: 'month', slug: ns, key: k, before: null, after: v }); ops.push({ t: 'month', slug: e.slug, key: k, before: v, after: null }); });
+      rq.forEach(r => { const { id, ...v } = r; ops.push({ t: 'vac', slug: ns, id, before: null, after: v }); ops.push({ t: 'vac', slug: e.slug, id, before: v, after: null }); });
+      ops.push({ t: 'emp', slug: e.slug, before: strip(e), after: null });
+    }
+    await commit((e ? 'Upraven zaměstnanec: ' : 'Přidán zaměstnanec: ') + j, ops);
+    return true;
+  });
+}
+async function delEmp(slug) {
+  const e = EMPS.find(x => x.slug === slug); if (!e) return;
+  if (!confirm('Smazat zaměstnance ' + e.jmeno + ' (ID ' + e.id + ') včetně celé docházky a žádostí o dovolenou?\nZměnu půjde vrátit v Historii změn.')) return;
+  const [ms, rq] = await Promise.all([window.dbListMonths(slug), window.dbListVacationRequests(slug)]);
+  const ops = [{ t: 'emp', slug, before: strip(e), after: null }];
+  Object.entries(ms).forEach(([k, v]) => ops.push({ t: 'month', slug, key: k, before: v, after: null }));
+  rq.forEach(r => { const { id, ...v } = r; ops.push({ t: 'vac', slug, id, before: v, after: null }); });
+  if (openSlug === slug) openSlug = null;
+  await commit('Smazán zaměstnanec: ' + e.jmeno, ops);
+}
+async function bulkAssign() {
+  const to = gid('bkG').value;
+  const ops = [...SEL].map(s => EMPS.find(x => x.slug === s)).filter(Boolean).map(e => ({ t: 'emp', slug: e.slug, before: strip(e), after: { ...strip(e), vedouci: to } }));
+  if (ops.length) await commit('Přiřazeno ' + ops.length + ' zaměstnanců do skupiny: ' + (to ? lname(to) : 'bez skupiny'), ops);
+}
+
+// ---------- dovolená ----------
+async function loadVac() {
+  try { await Promise.all(EMPS.map(async e => { if (!(e.slug in RQ)) RQ[e.slug] = await window.dbListVacationRequests(e.slug); })); } catch (e) {}
+  renderVac();
+}
+function renderVac() {
+  const vis = new Set(getRows().map(e => e.slug)), rank = { pending: 0, approved: 1, rejected: 2, cancelled: 3 }, all = [];
+  EMPS.forEach(e => { if (vis.has(e.slug)) (RQ[e.slug] || []).forEach(r => all.push({ ...r, slug: e.slug, jm: e.jmeno || e.slug })); });
+  all.sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9) || (a.dateFrom || '').localeCompare(b.dateFrom || ''));
+  gid('vacCnt').textContent = all.filter(r => r.status === 'pending').length || '';
+  gid('tabVac').innerHTML = all.length ? all.map(r => `<div class="vrow"><span><b>${esc(r.jm)}</b> &nbsp; ${fmtD(r.dateFrom)} → ${fmtD(r.dateTo)} &nbsp; <span class="vac-badge ${vacStatusClass(r.status)}">${vacStatusLabel(r.status)}</span></span><span>` +
+    (r.status === 'pending' ? `<button class="pri" onclick="vacSet('${r.slug}','${r.id}','approved')">Schválit</button> <button onclick="vacSet('${r.slug}','${r.id}','rejected')">Zamítnout</button> ` : r.status === 'approved' ? `<button onclick="vacSet('${r.slug}','${r.id}','rejected')">Zrušit</button> ` : '') +
+    `<button class="del" onclick="vacDel('${r.slug}','${r.id}')">Smazat</button></span></div>`).join('') : '<div class="mgmt-note">Žádné žádosti o dovolenou (podle filtru skupiny).</div>';
+}
+function vacOf(slug, id) { const r = (RQ[slug] || []).find(x => x.id === id), e = EMPS.find(x => x.slug === slug); const { id: _i, ...b } = r; return { b, e, r }; }
+async function vacSet(slug, id, status) {
+  const { b, e, r } = vacOf(slug, id);
+  await commit('Dovolená ' + (status === 'approved' ? 'schválena' : 'zamítnuta/zrušena') + ': ' + e.jmeno + ' ' + fmtD(r.dateFrom) + '–' + fmtD(r.dateTo), [{ t: 'vac', slug, id, before: b, after: { ...b, status, decidedAt: new Date().toISOString() } }]);
+}
+async function vacDel(slug, id) {
+  const { b, e, r } = vacOf(slug, id);
+  if (!confirm('Smazat žádost o dovolenou ' + e.jmeno + ' ' + fmtD(r.dateFrom) + '–' + fmtD(r.dateTo) + '?')) return;
+  await commit('Smazána žádost o dovolenou: ' + e.jmeno + ' ' + fmtD(r.dateFrom) + '–' + fmtD(r.dateTo), [{ t: 'vac', slug, id, before: b, after: null }]);
+}
+function vacAdd(slug) {
+  const e = EMPS.find(x => x.slug === slug);
+  openModal('Přidat dovolenou: ' + e.jmeno, '<label>Od</label><input type="date" id="vaF"><label>Do</label><input type="date" id="vaT">', 'Přidat (schváleno)', async () => {
+    const f = gid('vaF').value, t = gid('vaT').value;
+    if (!f || !t || t < f) return merr('Vyplň správně Od a Do.');
+    const id = 'v' + Date.now().toString(36), now = new Date().toISOString();
+    await commit('Přidána dovolená: ' + e.jmeno + ' ' + fmtD(f) + '–' + fmtD(t), [{ t: 'vac', slug, id, before: null, after: { jmeno: e.jmeno, dateFrom: f, dateTo: t, status: 'approved', createdAt: now, decidedAt: now } }]);
+    return true;
+  });
+}
+
+// ---------- tabulka docházky zaměstnance (úpravy vedoucím se zapisují do historie) ----------
+async function leaderLogMonth(after) {
+  const k = currentSlug + '|' + currentKey;
+  const empty = d => !d || ((d.rows || []).every(r => !r.prichod && !r.odchod && !r.dovHod && !r.nvHod && !r.lekHod && !r.poznamka) && (d.bonus || []).every(v => !v));
+  const norm = d => (empty(d) ? null : JSON.stringify({ ...d, updatedAt: 0 }));
+  const base = k in SHEETBASE ? SHEETBASE[k] : null;
+  if (!SHEETLOG[k]) {
+    if (norm(base) === norm(after)) return;
+    SHEETLOG[k] = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: Date.now(), before: base };
+  }
+  const s = SHEETLOG[k];
+  await window.dbSaveMonth('_log', s.id, { id: s.id, ts: s.ts, by: ME ? ME.jmeno : '?', label: 'Úprava docházky: ' + displayWho + ' ' + currentKey.replace('-', '/'), ops: [{ t: 'month', slug: currentSlug, key: currentKey, before: s.before, after }], reverted: false });
+}
+async function leaderOpenSheet(slug) {
+  const e = EMPS.find(x => x.slug === slug) || (await window.dbGetEmployee(slug)) || {};
+  showManage(false); SHEETBASE = {}; SHEETLOG = {};
+  gid('mesic').value = PER.m; gid('rok').value = PER.y;
+  currentSlug = slug; leaderView = true; displayWho = e.jmeno || slug;
+  currentKey = PER.y + '-' + PER.m;
+  gid('jmeno').value = e.jmeno || '';
+  gid('smena').value = e.smena || '';
+  gid('idCard').style.display = 'none';
+  gid('idLoggedBar').style.display = 'flex';
+  gid('loggedWhoText').textContent = 'režim vedoucího · ' + displayWho;
+  gid('btnLeaderBack').style.display = '';
+  clearAllRowInputs(); setInputsEnabled(true);
+  await loadCurrentMonth(); await refreshApprovedVacations(); await loadMyVacationRequestsUI(); await refreshYearlyStats();
+  rebuildCalendar();
+}
+async function leaderBack() { await switchUser(); showManage(true); await refreshAll(); }
+
+// ===================== v2.0: uzávěrka měsíce, oznámení s vrácením, ochrana dat =====================
+let monthMeta = { stav: 'open' }, savePending = false;
+const stOf = e => { const d = MC[e.slug + '|' + mkey()]; return d ? (d.stav || 'open') : 'none'; };
+const stLabel = s => ({ open: 'Otevřeno', sent: 'K schválení', ok: 'Uzavřeno', none: '—' }[s] || '—');
+const stBadge = e => { const s = stOf(e); return '<span class="st st-' + s + '">' + stLabel(s) + '</span>'; };
+function stBtns(e) {
+  const s = stOf(e), q = "['" + e.slug + "']";
+  if (s === 'none') return '';
+  return (s !== 'ok' ? '<button class="pri" onclick="setStav(' + q + ',\'ok\')">Schválit uzávěrku</button> ' : '') +
+    (s !== 'open' ? '<button onclick="setStav(' + q + ',\'open\')">' + (s === 'sent' ? 'Vrátit k úpravě' : 'Znovu otevřít') + '</button>' : '');
+}
+async function setStav(slugs, st) {
+  const key = mkey(), ops = [], now = new Date().toISOString();
+  slugs.forEach(s => {
+    const d = MC[s + '|' + key]; if (!d || (d.stav || 'open') === st) return;
+    const a = { ...d, stav: st, stavAt: now, stavBy: ME.jmeno };
+    if (st === 'open') { delete a.stav; delete a.stavAt; delete a.stavBy; }
+    ops.push({ t: 'month', slug: s, key, before: d, after: a });
+  });
+  if (!ops.length) { toast('Není co měnit - vybraní nemají záznam nebo už mají tento stav.'); return; }
+  await commit('Uzávěrka ' + PER.m + '/' + PER.y + (st === 'ok' ? ' schválena' : ' vrácena k úpravě') + ': ' + ops.length + ' zam.', ops);
+}
+function toast(msg, undoId) {
+  const t = document.createElement('div'); t.className = 'toast';
+  t.innerHTML = '<span>' + esc(msg) + '</span>' + (undoId ? '<button>↶ Vrátit zpět</button>' : '');
+  if (undoId) t.querySelector('button').onclick = () => { t.remove(); undoEntry(undoId, true); };
+  gid('toasts').appendChild(t); setTimeout(() => t.remove(), undoId ? 8000 : 3500);
+}
+function renderClose() {
+  const b = gid('closeBar'); if (!b) return;
+  if (!currentSlug) { b.style.display = 'none'; return; }
+  const s = monthMeta.stav || 'open', L = leaderView;
+  const info = { open: 'Měsíc je otevřený - zapisuj docházku a na konci ho odešli k uzávěrce.', sent: 'Odesláno k uzávěrce - čeká na schválení vedoucím.', ok: 'Uzávěrka schválena' + (monthMeta.stavBy ? ' (' + monthMeta.stavBy + ')' : '') + ' - měsíc je uzamčen.' }[s];
+  let btn = '';
+  if (!L && s === 'open') btn = '<button class="pri" onclick="closeAct(\'sent\')">Odeslat k uzávěrce</button>';
+  if (L && s !== 'ok') btn += '<button class="pri" onclick="closeAct(\'ok\')">Schválit uzávěrku</button> ';
+  if (L && s !== 'open') btn += '<button onclick="closeAct(\'open\')">' + (s === 'sent' ? 'Vrátit k úpravě' : 'Znovu otevřít') + '</button>';
+  b.style.display = 'flex';
+  b.innerHTML = '<span class="st st-' + s + '">' + stLabel(s) + '</span><span>' + esc(info) + '</span><span class="sp"></span>' + btn;
+}
+function applyLock() {
+  const locked = !!currentSlug && !leaderView && monthMeta.stav !== 'open';
+  document.body.classList.toggle('locked', locked);
+  if (currentSlug) setInputsEnabled(!locked);
+  renderClose();
+}
+async function closeAct(stav) {
+  if (!currentSlug) return;
+  const q = { sent: 'Odeslat měsíc k uzávěrce? Pak ho už nepůjde upravovat, dokud ho vedoucí nevrátí.', ok: 'Schválit uzávěrku tohoto měsíce? Měsíc se uzamkne.', open: 'Vrátit měsíc k úpravě / znovu otevřít?' }[stav];
+  if (!confirm(q)) return;
+  clearTimeout(saveTimer);
+  monthMeta = { stav, stavAt: new Date().toISOString(), stavBy: leaderView && ME ? ME.jmeno : null };
+  await saveCurrentMonth(true); applyLock();
+  toast(stav === 'sent' ? 'Měsíc odeslán k uzávěrce.' : stav === 'ok' ? 'Uzávěrka schválena.' : 'Měsíc je znovu otevřený.');
+}
+window.addEventListener('beforeunload', ev => { if (savePending) { ev.preventDefault(); ev.returnValue = ''; } });
+
+// Logo: oficiální soubor z webu Flowserve (flowserve.com/about-flowserve). Pro ostrý provoz ulož logo vedle index.html a změň adresu níže.
+const LOGO_URL = 'https://flowserve.widen.net/content/ala6dmxrai/webp/020-L-FLS-WhteOnRed.webp?q=80&h=400';
+(function () { const i = gid('flsLogo'); i.onerror = () => { i.style.display = 'none'; i.nextElementSibling.style.display = 'block'; }; i.src = LOGO_URL; })();
+document.querySelector('.bonus-t').addEventListener('input', scheduleSave);
+</script>
+
+</body>
+</html>
